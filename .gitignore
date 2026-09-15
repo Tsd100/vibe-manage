@@ -1,0 +1,29 @@
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Local development and preview state
+.superpowers/
+*.log
+*.pid
+
+# Local scan snapshots and generated inventory data
+inventory/*
+!inventory/README.md
+
+# Build and packaging output
+build/
+dist/
+*.spec
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
