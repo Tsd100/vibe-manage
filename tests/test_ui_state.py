@@ -9,6 +9,7 @@ from project_manager.ui import (
     format_manual_datetime,
     format_display_datetime,
     format_recent_datetime,
+    mousewheel_scroll_units,
     filter_projects_advanced,
     filter_projects,
     has_attention_signal,
@@ -61,6 +62,13 @@ def test_manual_edit_options_are_defined_for_dropdowns():
     assert "开发" in PHASE_OPTIONS
     assert "高" in PRIORITY_OPTIONS
     assert GITHUB_OPEN_SOURCE_OPTIONS == ("未确认", "是", "否")
+
+
+def test_mousewheel_scroll_units_supports_windows_wheel_deltas():
+    assert mousewheel_scroll_units(120) == -1
+    assert mousewheel_scroll_units(-120) == 1
+    assert mousewheel_scroll_units(240) == -2
+    assert mousewheel_scroll_units(0) == 0
 
 
 def test_system_theme_resolution_is_explicit():
@@ -129,6 +137,7 @@ def test_settings_page_exposes_grouped_configuration_sections(tmp_path):
         assert app.project_sort_var.get() == "最近修改"
         assert app._window_icon is not None
         assert app._taskbar_icon_configured is True
+        assert root.bind_all("<MouseWheel>")
         labels: list[str] = []
 
         def collect(widget: tk.Misc) -> None:

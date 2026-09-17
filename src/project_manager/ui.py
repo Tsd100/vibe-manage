@@ -73,6 +73,18 @@ def filter_projects(projects: Iterable[Mapping[str, Any]], query: str) -> list[M
     ]
 
 
+def mousewheel_scroll_units(delta: int) -> int:
+    """Convert a Windows mouse-wheel delta into Tk canvas scroll units."""
+    try:
+        value = int(delta)
+    except (TypeError, ValueError):
+        return 0
+    if value == 0:
+        return 0
+    steps = max(1, abs(value) // 120)
+    return -steps if value > 0 else steps
+
+
 def is_reference_project(project: Mapping[str, Any]) -> bool:
     """Return whether a registry record belongs to the read-only reference area."""
     scope = str(project.get("scope", "")).strip()
@@ -862,6 +874,35 @@ class ProjectManagerApp:
         settings_canvas.configure(yscrollcommand=settings_scroll.set)
         settings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         settings_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def settings_mousewheel(event: tk.Event) -> str | None:
+            """Forward wheel input from settings descendants to the page canvas."""
+            try:
+                target = self.root.winfo_containing(event.x_root, event.y_root)
+            except (AttributeError, tk.TclError):
+                return None
+            inside_settings = False
+            while target is not None:
+                if target == self.settings_page:
+                    inside_settings = True
+                    break
+                target = getattr(target, "master", None)
+            if not inside_settings:
+                return None
+            delta = getattr(event, "delta", 0)
+            if getattr(event, "num", None) == 4:
+                delta = 120
+            elif getattr(event, "num", None) == 5:
+                delta = -120
+            units = mousewheel_scroll_units(delta)
+            if units:
+                settings_canvas.yview_scroll(units, "units")
+                return "break"
+            return None
+
+        self.root.bind_all("<MouseWheel>", settings_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", settings_mousewheel, add="+")
+        self.root.bind_all("<Button-5>", settings_mousewheel, add="+")
 
         header = tk.Frame(settings_body, bg=THEME["canvas"])
         header.pack(fill=tk.X, pady=(0, 14))
