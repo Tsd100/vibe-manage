@@ -5,6 +5,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Iterable
+from urllib.parse import urlparse
 
 from .models import derive_creation_time
 
@@ -70,6 +71,64 @@ def _git(repo: Path, *args: str, timeout: float = 8.0) -> str:
     return result.stdout.strip()
 
 
+def _git_result(repo: Path, *args: str, timeout: float = 8.0) -> tuple[bool, str]:
+    """Run Git while preserving whether the command itself succeeded."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False, ""
+    return result.returncode == 0, result.stdout.strip()
+
+
+def parse_github_remote(value: str) -> str | None:
+    """Return a remote URL when it points at github.com, otherwise None."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.startswith("git@") and ":" in text:
+        host = text[4:].split(":", 1)[0].lower()
+    else:
+        host = (urlparse(text).hostname or "").lower()
+    return text if host in {"github.com", "www.github.com"} else None
+
+
+def git_remote_metadata(repo: Path) -> dict[str, str]:
+    """Classify a repository by its configured Git remotes."""
+    succeeded, output = _git_result(repo, "remote", "-v")
+    if not succeeded:
+        return {
+            "github_open_source": "未确认",
+            "github_open_source_source": "auto_git_remote",
+            "github_remote_url": "",
+        }
+    seen: set[str] = set()
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        remote = parse_github_remote(parts[1])
+        if remote and remote not in seen:
+            seen.add(remote)
+            return {
+                "github_open_source": "是",
+                "github_open_source_source": "auto_git_remote",
+                "github_remote_url": remote,
+            }
+    return {
+        "github_open_source": "否",
+        "github_open_source_source": "auto_git_remote",
+        "github_remote_url": "",
+    }
+
+
 def git_metadata(repo: Path) -> dict[str, str | int | None]:
     status = _git(repo, "status", "--short")
     branch = _git(repo, "branch", "--show-current") or "DETACHED"
@@ -83,6 +142,7 @@ def git_metadata(repo: Path) -> dict[str, str | int | None]:
         "last_commit_at": last_commit,
         "first_commit_at": first_commit,
         "last_subject": subject,
+        **git_remote_metadata(repo),
     }
 
 
@@ -172,6 +232,10 @@ def scan_projects(root: Path | Iterable[Path], max_depth: int = 5) -> list[dict[
             "branch": metadata.get("branch"),
             "dirty_files": metadata.get("dirty_files", 0),
             "last_subject": metadata.get("last_subject", ""),
+            "github_open_source": metadata.get("github_open_source", "未确认"),
+            "github_open_source_source": metadata.get("github_open_source_source", "auto_git_remote"),
+            "github_remote_url": metadata.get("github_remote_url", ""),
+            "github_open_source_history": [],
         }
         projects.append(record)
     return projects

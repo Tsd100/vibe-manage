@@ -48,6 +48,10 @@ class ProjectRecord:
     last_commit_at: str | None = None
     working_tree_modified_at: str | None = None
     last_modified_at: str | None = None
+    github_open_source: str = "未确认"
+    github_open_source_source: str = "auto_git_remote"
+    github_remote_url: str = ""
+    manual_github_open_source: str = ""
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "ProjectRecord":
@@ -66,4 +70,8 @@ class ProjectRecord:
             last_commit_at=data.get("last_commit_at"),
             working_tree_modified_at=data.get("working_tree_modified_at"),
             last_modified_at=data.get("last_modified_at"),
+            github_open_source=str(data.get("github_open_source", "未确认")),
+            github_open_source_source=str(data.get("github_open_source_source", "auto_git_remote")),
+            github_remote_url=str(data.get("github_remote_url", "")),
+            manual_github_open_source=str(data.get("manual_github_open_source", "")),
         )
