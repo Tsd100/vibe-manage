@@ -20,6 +20,7 @@ from project_manager.ui import (
     project_display_path,
     project_detail_fields,
     PRIORITY_OPTIONS,
+    GITHUB_OPEN_SOURCE_OPTIONS,
     PHASE_OPTIONS,
     STATUS_OPTIONS,
     status_tone,
@@ -59,6 +60,7 @@ def test_manual_edit_options_are_defined_for_dropdowns():
     assert "进行中" in STATUS_OPTIONS
     assert "开发" in PHASE_OPTIONS
     assert "高" in PRIORITY_OPTIONS
+    assert GITHUB_OPEN_SOURCE_OPTIONS == ("未确认", "是", "否")
 
 
 def test_system_theme_resolution_is_explicit():
@@ -179,6 +181,17 @@ def test_filter_projects_matches_name_purpose_and_status():
     assert [p["name"] for p in filter_projects(projects, "暂停")] == ["beta"]
 
 
+def test_filter_projects_matches_github_status_and_remote():
+    projects = [{
+        "name": "demo",
+        "purpose": "用途",
+        "github_open_source": "是",
+        "github_remote_url": "https://github.com/acme/demo",
+    }, {"name": "local", "github_open_source": "否"}]
+    assert [item["name"] for item in filter_projects(projects, "github.com")] == ["demo"]
+    assert [item["name"] for item in filter_projects(projects, "开源")] == ["demo"]
+
+
 def test_manual_override_keeps_only_editable_fields():
     result = build_manual_override({
         "manual_created_at": "2026-03-01",
@@ -194,7 +207,13 @@ def test_manual_override_keeps_only_editable_fields():
         "manual_phase": "开发",
         "manual_priority": "高",
         "next_action": "补测试",
+        "manual_github_open_source": "",
     }
+
+
+def test_manual_override_includes_github_field():
+    result = build_manual_override({"manual_github_open_source": "否"})
+    assert result["manual_github_open_source"] == "否"
 
 
 def test_project_summary_counts_and_status_tone():
@@ -287,6 +306,9 @@ def test_project_detail_fields_match_overview_detail_sections():
         "created_at_source": "filesystem_estimate",
         "last_modified_at": "2026-08-02T02:38:10.511198+00:00",
         "next_action": "补测试",
+        "github_open_source": "是",
+        "github_open_source_source": "auto_git_remote",
+        "github_remote_url": "https://github.com/acme/demo",
     })
 
     assert fields == [
@@ -296,6 +318,7 @@ def test_project_detail_fields_match_overview_detail_sections():
         ("最后修改", "2026-08-02 10:38:10"),
         ("下一步", "补测试"),
         ("状态", "进行中"),
+        ("GitHub 开源", "是（自动判断）\nhttps://github.com/acme/demo"),
     ]
     assert project_display_path(
         {"path": "Agent/firecrawl"},

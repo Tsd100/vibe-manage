@@ -54,10 +54,22 @@ def filter_projects(projects: Iterable[Mapping[str, Any]], query: str) -> list[M
     needle = query.strip().lower()
     if not needle:
         return list(projects)
-    fields = ("name", "path", "purpose", "manual_status", "manual_phase", "next_action")
     return [
         project for project in projects
-        if any(needle in str(project.get(field, "")).lower() for field in fields)
+        if any(needle in value.lower() for value in (
+            str(project.get("name", "")),
+            str(project.get("path", "")),
+            str(project.get("purpose", "")),
+            str(project.get("manual_status", "")),
+            str(project.get("manual_phase", "")),
+            str(project.get("next_action", "")),
+            str(project.get("github_remote_url", "")),
+            {
+                "是": "GitHub 开源",
+                "否": "GitHub 未连接",
+                "未确认": "GitHub 未确认",
+            }.get(str(project.get("github_open_source", "未确认")), "GitHub 未确认"),
+        ))
     ]
 
 
@@ -195,6 +207,12 @@ def project_detail_fields(project: Mapping[str, Any]) -> list[tuple[str, str]]:
     manual_created = project.get("manual_created_at")
     created_value = manual_created or project.get("created_at") or "未知"
     created_source = "manual" if manual_created else project.get("created_at_source", "unknown")
+    github_status = str(project.get("github_open_source") or "未确认")
+    github_source = "手动" if str(project.get("github_open_source_source") or "") == "manual" else "自动判断"
+    github_value = f"{github_status}（{github_source}）"
+    github_remote = str(project.get("github_remote_url") or "").strip()
+    if github_remote:
+        github_value += f"\n{github_remote}"
     return [
         ("用途", str(project.get("purpose") or "用途待补充")),
         ("阶段 / 优先级", f"{project.get('manual_phase', '未确认')} · {project.get('manual_priority', '未确认')}"),
@@ -202,11 +220,13 @@ def project_detail_fields(project: Mapping[str, Any]) -> list[tuple[str, str]]:
         ("最后修改", format_display_datetime(project.get("last_modified_at"))),
         ("下一步", str(project.get("next_action") or "未填写")),
         ("状态", str(project.get("manual_status") or "未确认")),
+        ("GitHub 开源", github_value),
     ]
 
 
 EDITABLE_FIELDS = (
     "manual_created_at", "manual_status", "manual_phase", "manual_priority", "next_action",
+    "manual_github_open_source",
 )
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -214,6 +234,7 @@ BEIJING_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
 STATUS_OPTIONS = ("未确认", "未开始", "进行中", "已完成", "阻塞", "暂停", "归档")
 PHASE_OPTIONS = ("未确认", "探索", "规划", "开发", "验证", "维护")
 PRIORITY_OPTIONS = ("未确认", "低", "中", "高")
+GITHUB_OPEN_SOURCE_OPTIONS = ("未确认", "是", "否")
 
 
 def format_display_datetime(value: Any) -> str:
@@ -729,7 +750,7 @@ class ProjectManagerApp:
         self.timeline_type_var = tk.StringVar(value="全部")
         self.timeline_type_box = ttk.Combobox(filters, textvariable=self.timeline_type_var,
                                                state="readonly",
-                                               values=("全部", "created", "last_modified", "commit", "working_tree", "validation", "manual"),
+                                               values=("全部", "created", "last_modified", "commit", "working_tree", "validation", "manual", "github_open_source"),
                                                width=13, style="Filter.TCombobox")
         self.timeline_type_box.pack(side=tk.LEFT, padx=(5, 0))
         self.timeline_type_box.bind("<<ComboboxSelected>>", lambda _event: self._render_timeline_page())
@@ -1321,9 +1342,10 @@ class ProjectManagerApp:
         add_field("用途", 0, 0, 2)
         add_field("阶段 / 优先级", 1, 0)
         add_field("状态", 1, 1)
-        add_field("创建时间", 2, 0)
-        add_field("最后修改", 2, 1)
-        add_field("下一步", 3, 0, 2)
+        add_field("GitHub 开源", 2, 0, 2)
+        add_field("创建时间", 3, 0)
+        add_field("最后修改", 3, 1)
+        add_field("下一步", 4, 0, 2)
 
         tk.Label(self.detail_content, text="最近时间线", bg=THEME["card"], fg=THEME["primary"],
                  font=("Segoe UI", 10, "bold"), anchor="w").pack(anchor="w", pady=(3, 8))
@@ -1517,10 +1539,16 @@ class ProjectManagerApp:
             "manual_phase": "阶段",
             "manual_priority": "优先级",
             "next_action": "下一步动作",
+            "manual_github_open_source": "GitHub 开源",
         }
         for row, field in enumerate(EDITABLE_FIELDS):
             ttk.Label(form, text=labels[field]).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
-            variable = tk.StringVar(value=str(project.get(field, "")))
+            if field == "manual_github_open_source":
+                current_manual = str(project.get(field, "") or "").strip()
+                initial_value = current_manual or str(project.get("github_open_source") or "未确认")
+            else:
+                initial_value = str(project.get(field, ""))
+            variable = tk.StringVar(value=initial_value)
             variables[field] = variable
             if field == "manual_created_at":
                 date_frame = ttk.Frame(form)
@@ -1536,6 +1564,9 @@ class ProjectManagerApp:
             elif field == "manual_priority":
                 values = tuple(dict.fromkeys((*PRIORITY_OPTIONS, str(project.get(field, "")).strip())))
                 ttk.Combobox(form, textvariable=variable, values=values, state="readonly", width=43).grid(row=row, column=1, sticky="ew", pady=4)
+            elif field == "manual_github_open_source":
+                ttk.Combobox(form, textvariable=variable, values=GITHUB_OPEN_SOURCE_OPTIONS,
+                             state="readonly", width=43).grid(row=row, column=1, sticky="ew", pady=4)
             else:
                 ttk.Entry(form, textvariable=variable, width=46).grid(row=row, column=1, sticky="ew", pady=4)
         form.columnconfigure(1, weight=1)
@@ -1552,13 +1583,48 @@ class ProjectManagerApp:
             if date_value and parse_manual_datetime(date_value) is None:
                 messagebox.showwarning("时间格式", "请通过“选择日期时间”填写有效的创建时间。", parent=dialog)
                 return
-            override = build_manual_override({field: variables[field].get() for field in EDITABLE_FIELDS})
+            values = {field: variables[field].get() for field in EDITABLE_FIELDS}
+            current_github = str(project.get("github_open_source") or "未确认")
+            had_manual_github = str(project.get("manual_github_open_source") or "") in {"是", "否"}
+            selected_github = values["manual_github_open_source"].strip()
+            if selected_github == "未确认" or (not had_manual_github and selected_github == current_github):
+                values["manual_github_open_source"] = ""
+            override = build_manual_override(values)
             overrides = self._overrides_store.load(default={}) or {}
             overrides[str(project.get("id"))] = override
             self._overrides_store.save(overrides)
+            previous_github = str(project.get("github_open_source") or "未确认")
+            previous_source = str(project.get("github_open_source_source") or "auto_git_remote")
+            manual_github = override["manual_github_open_source"]
+            if manual_github in {"是", "否"}:
+                effective_github = manual_github
+                effective_source = "manual"
+            else:
+                effective_github = str(project.get("github_auto_open_source") or project.get("github_open_source") or "未确认")
+                effective_source = str(project.get("github_auto_open_source_source") or "auto_git_remote")
             project.update(override)
+            project["github_open_source"] = effective_github
+            project["github_open_source_source"] = effective_source
+            if effective_github != previous_github or effective_source != previous_source:
+                history = project.get("github_open_source_history")
+                history = list(history) if isinstance(history, list) else []
+                history.append({
+                    "at": datetime.now().astimezone().isoformat(),
+                    "value": effective_github,
+                    "source": effective_source,
+                })
+                project["github_open_source_history"] = history
+            self._registry_store.save({
+                "generated_at": getattr(self, "registry_generated_at", datetime.now().astimezone().isoformat()),
+                "projects": self.projects,
+            })
+            safe_name = str(project.get("id", "project")).replace("/", "__").replace("\\", "__").replace(":", "_")
+            JsonStore(self.config.data_dir / "timeline" / f"{safe_name}.json").save(
+                [asdict(event) for event in project_events(project)]
+            )
             self._render_projects()
             self._on_select(None)
+            self._render_timeline_page()
             close_dialog()
 
         buttons = ttk.Frame(form)

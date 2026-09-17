@@ -51,6 +51,8 @@ class ProjectRecord:
     github_open_source: str = "未确认"
     github_open_source_source: str = "auto_git_remote"
     github_remote_url: str = ""
+    github_auto_open_source: str = "未确认"
+    github_auto_open_source_source: str = "auto_git_remote"
     manual_github_open_source: str = ""
 
     @classmethod
@@ -73,5 +75,7 @@ class ProjectRecord:
             github_open_source=str(data.get("github_open_source", "未确认")),
             github_open_source_source=str(data.get("github_open_source_source", "auto_git_remote")),
             github_remote_url=str(data.get("github_remote_url", "")),
+            github_auto_open_source=str(data.get("github_auto_open_source", data.get("github_open_source", "未确认"))),
+            github_auto_open_source_source=str(data.get("github_auto_open_source_source", "auto_git_remote")),
             manual_github_open_source=str(data.get("manual_github_open_source", "")),
         )

@@ -235,6 +235,8 @@ def scan_projects(root: Path | Iterable[Path], max_depth: int = 5) -> list[dict[
             "github_open_source": metadata.get("github_open_source", "未确认"),
             "github_open_source_source": metadata.get("github_open_source_source", "auto_git_remote"),
             "github_remote_url": metadata.get("github_remote_url", ""),
+            "github_auto_open_source": metadata.get("github_open_source", "未确认"),
+            "github_auto_open_source_source": metadata.get("github_open_source_source", "auto_git_remote"),
             "github_open_source_history": [],
         }
         projects.append(record)
