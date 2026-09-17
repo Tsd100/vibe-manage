@@ -28,7 +28,7 @@ from .settings import (
     settings_from_mapping,
     ui_scale_factor,
 )
-from .storage import JsonStore, merge_manual_overrides
+from .storage import JsonStore, merge_manual_overrides, preserve_scan_fields
 from .timeline import project_events
 from .windows import set_windows_window_icon
 
@@ -1655,8 +1655,7 @@ class ProjectManagerApp:
             for item in scanned:
                 record = merge_manual_overrides(item, overrides)
                 old = previous.get(str(record.get("id")), {})
-                if "validation" in old:
-                    record["validation"] = old["validation"]
+                record = preserve_scan_fields(record, old)
                 merged.append(record)
             payload = {"generated_at": datetime.now().astimezone().isoformat(), "projects": merged}
             self._registry_store.save(payload)
