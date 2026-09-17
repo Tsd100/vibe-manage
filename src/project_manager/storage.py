@@ -59,3 +59,12 @@ def merge_manual_overrides(auto_record: Mapping[str, Any], overrides: Mapping[st
             merged["github_open_source"] = auto_value
             merged["github_open_source_source"] = auto_source
     return merged
+
+
+def preserve_scan_fields(fresh_record: Mapping[str, Any], previous_record: Mapping[str, Any]) -> dict[str, Any]:
+    """Carry user-generated scan annotations into a newly scanned record."""
+    merged = dict(fresh_record)
+    for field in ("validation", "github_open_source_history"):
+        if field in previous_record:
+            merged[field] = previous_record[field]
+    return merged
