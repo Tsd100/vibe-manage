@@ -11,6 +11,7 @@ from project_manager.ui import (
     format_recent_datetime,
     mousewheel_scroll_units,
     clamp_window_position,
+    drag_window_position,
     filter_projects_advanced,
     filter_projects,
     has_attention_signal,
@@ -76,6 +77,10 @@ def test_clamp_window_position_keeps_titlebar_and_recovery_edge_visible():
     assert clamp_window_position(120, -80, 1280, 780, 1920, 1080) == (120, 0)
     assert clamp_window_position(-1400, 120, 1280, 780, 1920, 1080) == (-1160, 120)
     assert clamp_window_position(900, 900, 1280, 780, 1920, 1080) == (900, 900)
+
+
+def test_drag_window_position_preserves_pointer_offset():
+    assert drag_window_position(520, 340, 120, 80) == (400, 260)
 
 
 def test_system_theme_resolution_is_explicit():
@@ -146,6 +151,7 @@ def test_settings_page_exposes_grouped_configuration_sections(tmp_path):
         assert app._taskbar_icon_configured is True
         assert root.bind_all("<MouseWheel>")
         assert root.bind("<Control-Shift-r>")
+        assert all(region.bind("<ButtonPress-1>") for region in app._window_drag_regions)
         labels: list[str] = []
 
         def collect(widget: tk.Misc) -> None:

@@ -103,6 +103,11 @@ def clamp_window_position(
     return max(min_x, min(int(x), max_x)), max(0, min(int(y), max_y))
 
 
+def drag_window_position(pointer_x: int, pointer_y: int, offset_x: int, offset_y: int) -> tuple[int, int]:
+    """Calculate a new top-level origin while preserving the grab offset."""
+    return int(pointer_x) - int(offset_x), int(pointer_y) - int(offset_y)
+
+
 def is_reference_project(project: Mapping[str, Any]) -> bool:
     """Return whether a registry record belongs to the read-only reference area."""
     scope = str(project.get("scope", "")).strip()
@@ -472,6 +477,7 @@ class ProjectManagerApp:
         self.projects: list[dict[str, Any]] = []
         self._refreshing = False
         self._window_clamp_pending = False
+        self._window_drag_offset: tuple[int, int] | None = None
         self._registry_store = JsonStore(self.config.data_dir / "inventory" / "projects-registry.json")
         self._scan_history_store = JsonStore(self.config.data_dir / "inventory" / "scan-history.json")
         self._overrides_store = JsonStore(self.config.data_dir / "overrides" / "project-overrides.json")
@@ -612,8 +618,12 @@ class ProjectManagerApp:
         sidebar = tk.Frame(shell, bg=THEME["sidebar"], width=178)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
-        tk.Label(sidebar, text="VIBE\nMANAGE", bg=THEME["sidebar"], fg="#ffffff",
-                 font=("Segoe UI", 15, "bold"), justify=tk.LEFT).pack(anchor="w", padx=20, pady=(24, 34))
+        sidebar_logo_area = tk.Frame(sidebar, bg=THEME["sidebar"], height=116)
+        sidebar_logo_area.pack(fill=tk.X, padx=10, pady=(10, 18))
+        sidebar_logo_area.pack_propagate(False)
+        tk.Label(sidebar_logo_area, text="VIBE\nMANAGE", bg=THEME["sidebar"], fg="#ffffff",
+                 font=("Segoe UI", 15, "bold"), justify=tk.LEFT).pack(anchor="w", padx=10, pady=(14, 0))
+        self._bind_window_drag(sidebar_logo_area)
         tk.Label(sidebar, text="工作台", bg=THEME["sidebar"], fg="#7188a6",
                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill=tk.X, padx=20, pady=(0, 8))
         self.nav_buttons: dict[str, tk.Button] = {}
@@ -634,6 +644,10 @@ class ProjectManagerApp:
         self.repo_roots_var = tk.StringVar(value=self._repo_roots_text())
         tk.Label(sidebar, textvariable=self.repo_roots_var, bg=THEME["sidebar"], fg=THEME["sidebar_muted"],
                  font=("Segoe UI", 8), justify=tk.LEFT, anchor="w", wraplength=138).pack(fill=tk.X, padx=20, pady=(5, 0))
+        sidebar_drag_area = tk.Frame(sidebar, bg=THEME["sidebar"])
+        sidebar_drag_area.pack(fill=tk.BOTH, expand=True)
+        self._bind_window_drag(sidebar_drag_area)
+        self._window_drag_regions = (sidebar_logo_area, sidebar_drag_area)
 
         workspace = ttk.Frame(shell, style="App.TFrame", padding=(18, 0, 0, 0))
         workspace.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1455,6 +1469,24 @@ class ProjectManagerApp:
         if not selected:
             return None
         return next((item for item in self.projects if item.get("id") == selected[0]), None)
+
+    def _bind_window_drag(self, widget: tk.Misc) -> None:
+        widget.bind("<ButtonPress-1>", self._start_window_drag, add="+")
+        widget.bind("<B1-Motion>", self._drag_window, add="+")
+
+    def _start_window_drag(self, event: tk.Event) -> str:
+        self._window_drag_offset = (
+            event.x_root - self.root.winfo_x(),
+            event.y_root - self.root.winfo_y(),
+        )
+        return "break"
+
+    def _drag_window(self, event: tk.Event) -> str:
+        if self._window_drag_offset is None:
+            return "break"
+        x, y = drag_window_position(event.x_root, event.y_root, *self._window_drag_offset)
+        self.root.geometry(f"+{x}+{y}")
+        return "break"
 
     def _schedule_window_visibility(self) -> None:
         if self._window_clamp_pending:
