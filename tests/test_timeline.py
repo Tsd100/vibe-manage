@@ -38,3 +38,18 @@ def test_project_events_include_creation_and_last_modified_evidence():
         ("last_modified", "2026-05-01T00:00:00+00:00", "filesystem"),
         ("created", "2025-01-01T00:00:00+00:00", "filesystem_estimate"),
     ]
+
+
+def test_project_events_include_github_status_and_manual_history():
+    events = project_events({
+        "github_open_source": "是",
+        "github_open_source_source": "auto_git_remote",
+        "github_remote_url": "https://github.com/acme/demo",
+        "github_open_source_history": [{
+            "at": "2026-09-06T12:00:00+08:00",
+            "value": "否",
+            "source": "manual",
+        }],
+    })
+    assert any(event.event_type == "github_open_source" and event.source == "auto_git_remote" for event in events)
+    assert any(event.event_type == "github_open_source" and event.source == "manual" for event in events)

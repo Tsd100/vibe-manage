@@ -37,5 +37,18 @@ def merge_manual_overrides(auto_record: Mapping[str, Any], overrides: Mapping[st
     project_id = str(auto_record.get("id", ""))
     manual = overrides.get(project_id, {})
     if isinstance(manual, Mapping):
-        merged.update(manual)
+        for key, value in manual.items():
+            if key != "manual_github_open_source":
+                merged[key] = value
+        manual_github = str(manual.get("manual_github_open_source", "") or "").strip()
+        if manual_github in {"是", "否"}:
+            merged["manual_github_open_source"] = manual_github
+            merged["github_open_source"] = manual_github
+            merged["github_open_source_source"] = "manual"
+        elif "manual_github_open_source" in manual:
+            merged["manual_github_open_source"] = ""
+            merged["github_open_source"] = str(auto_record.get("github_open_source") or "未确认")
+            merged["github_open_source_source"] = str(
+                auto_record.get("github_open_source_source") or "auto_git_remote"
+            )
     return merged

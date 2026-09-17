@@ -16,6 +16,29 @@ def build_timeline(events: Iterable[TimelineEvent]) -> list[TimelineEvent]:
 
 def project_events(project: Mapping[str, Any]) -> list[TimelineEvent]:
     events: list[TimelineEvent] = []
+    github_status = str(project.get("github_open_source") or "").strip()
+    if github_status:
+        source = str(project.get("github_open_source_source") or "auto_git_remote")
+        remote = str(project.get("github_remote_url") or "").strip()
+        suffix = f" · {remote}" if remote else ""
+        events.append(TimelineEvent(
+            None,
+            "github_open_source",
+            f"GitHub 开源状态：{github_status}{suffix}",
+            source,
+        ))
+    history = project.get("github_open_source_history")
+    if isinstance(history, Iterable) and not isinstance(history, (str, bytes, Mapping)):
+        for item in history:
+            if not isinstance(item, Mapping):
+                continue
+            value = str(item.get("value") or "未确认")
+            events.append(TimelineEvent(
+                str(item.get("at")) if item.get("at") else None,
+                "github_open_source",
+                f"GitHub 开源状态：{value}",
+                str(item.get("source") or "manual"),
+            ))
     if project.get("created_at"):
         events.append(TimelineEvent(
             str(project["created_at"]), "created", "项目创建时间",

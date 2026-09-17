@@ -17,3 +17,18 @@ def test_manual_override_survives_auto_refresh():
     merged = merge_manual_overrides(auto, overrides)
     assert merged["purpose"] == "人工用途"
     assert merged["manual_status"] == "进行中"
+
+
+def test_merge_manual_github_value_overrides_auto_and_empty_restores_auto():
+    auto = {
+        "id": "repo:demo",
+        "github_open_source": "是",
+        "github_open_source_source": "auto_git_remote",
+        "github_remote_url": "https://github.com/acme/demo",
+    }
+    manual = merge_manual_overrides(auto, {"repo:demo": {"manual_github_open_source": "否"}})
+    assert manual["github_open_source"] == "否"
+    assert manual["github_open_source_source"] == "manual"
+    restored = merge_manual_overrides(auto, {"repo:demo": {"manual_github_open_source": ""}})
+    assert restored["github_open_source"] == "是"
+    assert restored["github_open_source_source"] == "auto_git_remote"
