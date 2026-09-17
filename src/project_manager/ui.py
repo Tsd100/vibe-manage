@@ -85,6 +85,24 @@ def mousewheel_scroll_units(delta: int) -> int:
     return -steps if value > 0 else steps
 
 
+def clamp_window_position(
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    screen_width: int,
+    screen_height: int,
+    titlebar_height: int = 40,
+    visible_edge_width: int = 120,
+) -> tuple[int, int]:
+    """Keep enough of a window visible to recover it with the mouse."""
+    del height  # The vertical limit is defined by the visible title bar.
+    min_x = min(0, -max(1, int(width)) + visible_edge_width)
+    max_x = max(min_x, int(screen_width) - visible_edge_width)
+    max_y = max(0, int(screen_height) - max(1, int(titlebar_height)))
+    return max(min_x, min(int(x), max_x)), max(0, min(int(y), max_y))
+
+
 def is_reference_project(project: Mapping[str, Any]) -> bool:
     """Return whether a registry record belongs to the read-only reference area."""
     scope = str(project.get("scope", "")).strip()
@@ -422,6 +440,7 @@ class TrayController:
     def start(self) -> None:
         menu = pystray.Menu(
             pystray.MenuItem("打开看板", self._open),
+            pystray.MenuItem("恢复窗口位置", self._restore),
             pystray.MenuItem("退出应用", self._exit),
         )
         self.icon = pystray.Icon("project-manager", create_app_icon(64), "项目管理看板", menu)
@@ -430,6 +449,9 @@ class TrayController:
 
     def _open(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self.app.root.after(0, self.app.show_from_tray)
+
+    def _restore(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+        self.app.root.after(0, self.app.restore_window_position)
 
     def _exit(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self.app.root.after(0, self.app.exit_from_tray)
@@ -449,6 +471,7 @@ class ProjectManagerApp:
         self.tray = TrayController(self) if not no_tray else None
         self.projects: list[dict[str, Any]] = []
         self._refreshing = False
+        self._window_clamp_pending = False
         self._registry_store = JsonStore(self.config.data_dir / "inventory" / "projects-registry.json")
         self._scan_history_store = JsonStore(self.config.data_dir / "inventory" / "scan-history.json")
         self._overrides_store = JsonStore(self.config.data_dir / "overrides" / "project-overrides.json")
@@ -576,6 +599,8 @@ class ProjectManagerApp:
         self.root.title("项目管理看板")
         self.root.geometry("1280x780")
         self.root.minsize(1020, 640)
+        self.root.bind("<Configure>", lambda _event: self._schedule_window_visibility(), add="+")
+        self.root.bind("<Control-Shift-r>", self._restore_window_shortcut, add="+")
         self.root.configure(bg=THEME["canvas"])
         self._configure_styles()
 
@@ -740,6 +765,7 @@ class ProjectManagerApp:
         detail_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._build_secondary_pages(workspace)
         self.show_page(self.settings.default_page)
+        self.root.after_idle(self._keep_window_visible)
 
     def _build_secondary_pages(self, workspace: tk.Misc) -> None:
         self.timeline_page = tk.Frame(workspace, bg=THEME["canvas"])
@@ -1430,6 +1456,54 @@ class ProjectManagerApp:
             return None
         return next((item for item in self.projects if item.get("id") == selected[0]), None)
 
+    def _schedule_window_visibility(self) -> None:
+        if self._window_clamp_pending:
+            return
+        self._window_clamp_pending = True
+        self.root.after_idle(self._keep_window_visible)
+
+    def _keep_window_visible(self) -> None:
+        self._window_clamp_pending = False
+        try:
+            if self.root.state() != "normal":
+                return
+            self.root.update_idletasks()
+            width = max(1, self.root.winfo_width())
+            height = max(1, self.root.winfo_height())
+            x, y = clamp_window_position(
+                self.root.winfo_x(),
+                self.root.winfo_y(),
+                width,
+                height,
+                self.root.winfo_screenwidth(),
+                self.root.winfo_screenheight(),
+            )
+            if (x, y) != (self.root.winfo_x(), self.root.winfo_y()):
+                self.root.geometry(f"{width}x{height}+{x}+{y}")
+        except tk.TclError:
+            return
+
+    def _restore_window_shortcut(self, _event: tk.Event | None = None) -> str:
+        self.restore_window_position()
+        return "break"
+
+    def restore_window_position(self) -> None:
+        """Center the main window so an off-screen title bar can be recovered."""
+        try:
+            self.root.deiconify()
+            self.root.update_idletasks()
+            width = max(self.root.winfo_reqwidth(), self.root.winfo_width())
+            height = max(self.root.winfo_reqheight(), self.root.winfo_height())
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x = max(0, (screen_width - width) // 2)
+            y = max(0, (screen_height - height) // 2)
+            self.root.geometry(f"{width}x{height}+{x}+{y}")
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            return
+
     def _center_toplevel(self, window: tk.Toplevel, owner: tk.Misc | None = None) -> None:
         """Center a modal window over the application, with a screen fallback."""
         owner = owner or self.root
@@ -1758,6 +1832,7 @@ class ProjectManagerApp:
     def show_from_tray(self) -> None:
         self.state.request_show()
         self.root.deiconify()
+        self._keep_window_visible()
         self.root.lift()
         self.root.focus_force()
 

@@ -10,6 +10,7 @@ from project_manager.ui import (
     format_display_datetime,
     format_recent_datetime,
     mousewheel_scroll_units,
+    clamp_window_position,
     filter_projects_advanced,
     filter_projects,
     has_attention_signal,
@@ -69,6 +70,12 @@ def test_mousewheel_scroll_units_supports_windows_wheel_deltas():
     assert mousewheel_scroll_units(-120) == 1
     assert mousewheel_scroll_units(240) == -2
     assert mousewheel_scroll_units(0) == 0
+
+
+def test_clamp_window_position_keeps_titlebar_and_recovery_edge_visible():
+    assert clamp_window_position(120, -80, 1280, 780, 1920, 1080) == (120, 0)
+    assert clamp_window_position(-1400, 120, 1280, 780, 1920, 1080) == (-1160, 120)
+    assert clamp_window_position(900, 900, 1280, 780, 1920, 1080) == (900, 900)
 
 
 def test_system_theme_resolution_is_explicit():
@@ -138,6 +145,7 @@ def test_settings_page_exposes_grouped_configuration_sections(tmp_path):
         assert app._window_icon is not None
         assert app._taskbar_icon_configured is True
         assert root.bind_all("<MouseWheel>")
+        assert root.bind("<Control-Shift-r>")
         labels: list[str] = []
 
         def collect(widget: tk.Misc) -> None:
