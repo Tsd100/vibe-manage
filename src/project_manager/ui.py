@@ -791,18 +791,18 @@ class ProjectManagerApp:
         filters.pack(side=tk.RIGHT)
         tk.Label(filters, text="项目", bg=THEME["canvas"], fg=THEME["muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self.timeline_project_var = tk.StringVar(value="全部")
+        self.timeline_project_var = tk.StringVar(value="全部项目")
         self.timeline_project_box = ttk.Combobox(filters, textvariable=self.timeline_project_var,
-                                                  state="readonly", values=("全部",), width=18,
+                                                  state="readonly", values=("全部项目",), width=18,
                                                   style="Filter.TCombobox")
         self.timeline_project_box.pack(side=tk.LEFT, padx=(5, 10))
         self.timeline_project_box.bind("<<ComboboxSelected>>", lambda _event: self._render_timeline_page())
         tk.Label(filters, text="事件", bg=THEME["canvas"], fg=THEME["muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self.timeline_type_var = tk.StringVar(value="全部")
+        self.timeline_type_var = tk.StringVar(value="全部事件")
         self.timeline_type_box = ttk.Combobox(filters, textvariable=self.timeline_type_var,
                                                state="readonly",
-                                               values=("全部", "created", "last_modified", "commit", "working_tree", "validation", "manual", "github_open_source"),
+                                               values=("全部事件", "创建时间", "项目修改", "Git 提交", "工作树修改", "验证事件", "人工记录", "GitHub 开源"),
                                                width=13, style="Filter.TCombobox")
         self.timeline_type_box.pack(side=tk.LEFT, padx=(5, 0))
         self.timeline_type_box.bind("<<ComboboxSelected>>", lambda _event: self._render_timeline_page())
@@ -811,27 +811,20 @@ class ProjectManagerApp:
         timeline_panes.pack(fill=tk.BOTH, expand=True)
         timeline_left = tk.Frame(timeline_panes, bg=THEME["card"], highlightbackground=THEME["line"], highlightthickness=1)
         timeline_right = tk.Frame(timeline_panes, bg=THEME["card"], highlightbackground=THEME["line"], highlightthickness=1)
-        timeline_panes.add(timeline_left, weight=3)
-        timeline_panes.add(timeline_right, weight=2)
-        self.timeline_tree = ttk.Treeview(
-            timeline_left, columns=("at", "project", "type", "summary", "source"),
-            show="headings", selectmode="browse", style="Project.Treeview",
-        )
-        self._configure_tree_columns(
-            self.timeline_tree,
-            "timeline",
-            (("at", "时间", 155), ("project", "项目", 150),
-             ("type", "类型", 95), ("summary", "摘要", 260),
-             ("source", "来源", 90)),
-        )
-        timeline_scroll = ttk.Scrollbar(timeline_left, orient=tk.VERTICAL, command=self.timeline_tree.yview)
-        timeline_xscroll = ttk.Scrollbar(timeline_left, orient=tk.HORIZONTAL, command=self.timeline_tree.xview)
-        self.timeline_tree.configure(yscrollcommand=timeline_scroll.set, xscrollcommand=timeline_xscroll.set)
-        self.timeline_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0), pady=8)
-        timeline_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
-        timeline_xscroll.pack(side=tk.BOTTOM, fill=tk.X, padx=8)
-        self.timeline_tree.bind("<<TreeviewSelect>>", self._on_timeline_select)
+        timeline_panes.add(timeline_left, weight=1)
+        timeline_panes.add(timeline_right, weight=1)
+        self.timeline_canvas = tk.Canvas(timeline_left, bg=THEME["card"], highlightthickness=0)
+        timeline_scroll = ttk.Scrollbar(timeline_left, orient=tk.VERTICAL, command=self.timeline_canvas.yview)
+        self.timeline_canvas.configure(yscrollcommand=timeline_scroll.set)
+        self.timeline_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        timeline_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.timeline_cards = tk.Frame(self.timeline_canvas, bg=THEME["card"])
+        self.timeline_canvas_window = self.timeline_canvas.create_window((0, 0), window=self.timeline_cards, anchor="nw")
+        self.timeline_cards.bind("<Configure>", lambda _event: self.timeline_canvas.configure(scrollregion=self.timeline_canvas.bbox("all")))
+        self.timeline_canvas.bind("<Configure>", lambda event: self.timeline_canvas.itemconfigure(self.timeline_canvas_window, width=event.width))
         self.timeline_event_map: dict[str, tuple[dict[str, Any], Any]] = {}
+        self.timeline_card_parts: dict[str, tuple[tk.Widget, ...]] = {}
+        self.timeline_selected_id: str | None = None
 
         self.timeline_detail = tk.Text(
             timeline_right, wrap=tk.WORD, state=tk.DISABLED, padx=16, pady=16,
@@ -840,6 +833,7 @@ class ProjectManagerApp:
         )
         self.timeline_detail.tag_configure("title", font=("Segoe UI", 14, "bold"), foreground=THEME["ink"])
         self.timeline_detail.tag_configure("muted", foreground=THEME["muted"])
+        self.timeline_detail.tag_configure("label", font=("Segoe UI", 9, "bold"), foreground=THEME["muted"])
         self.timeline_detail.pack(fill=tk.BOTH, expand=True)
 
         self.scan_page = tk.Frame(workspace, bg=THEME["canvas"])
@@ -1119,7 +1113,6 @@ class ProjectManagerApp:
         self.column_widths = default_column_widths()
         for tree, view_name in (
             (self.tree, "overview"),
-            (self.timeline_tree, "timeline"),
             (self.scan_history_tree, "scan_history"),
         ):
             for column, width in self.column_widths[view_name].items():
@@ -1213,37 +1206,64 @@ class ProjectManagerApp:
 
     def _render_timeline_page(self) -> None:
         visible_projects = managed_projects(self.projects)
-        project_names = ["全部"] + [str(project.get("name", "")) for project in visible_projects]
+        project_names = ["全部项目"] + [str(project.get("name", "")) for project in visible_projects]
         self.timeline_project_box.configure(values=project_names)
         if self.timeline_project_var.get() not in project_names:
-            self.timeline_project_var.set("全部")
-        for item in self.timeline_tree.get_children():
-            self.timeline_tree.delete(item)
+            self.timeline_project_var.set("全部项目")
+        for child in self.timeline_cards.winfo_children():
+            child.destroy()
         self.timeline_event_map.clear()
+        self.timeline_card_parts.clear()
+        self.timeline_selected_id = None
         project_filter = self.timeline_project_var.get()
         type_filter = self.timeline_type_var.get()
+        event_names = {
+            "created": "创建时间", "last_modified": "项目修改", "commit": "Git 提交",
+            "working_tree": "工作树修改", "validation": "验证事件",
+            "manual": "人工记录", "github_open_source": "GitHub 开源",
+        }
         records: list[tuple[dict[str, Any], Any]] = []
         for project in visible_projects:
-            if project_filter != "全部" and str(project.get("name", "")) != project_filter:
+            if project_filter != "全部项目" and str(project.get("name", "")) != project_filter:
                 continue
             for event in project_events(project):
-                if type_filter != "全部" and event.event_type != type_filter:
+                if type_filter != "全部事件" and event_names.get(event.event_type, event.event_type) != type_filter:
                     continue
                 records.append((project, event))
         records.sort(key=lambda pair: (pair[1].at is not None, pair[1].at or ""), reverse=True)
         for index, (project, event) in enumerate(records):
             item_id = f"event:{index}"
             self.timeline_event_map[item_id] = (project, event)
-            self.timeline_tree.insert(
-                "", tk.END, iid=item_id,
-                values=(format_display_datetime(event.at), project.get("name", ""), event.event_type,
-                        event.summary, event.source),
-            )
+            selected = index == 0
+            background = THEME["primary_soft"] if selected else THEME["card"]
+            stripe = THEME["primary"] if selected else THEME["line"]
+            card = tk.Frame(self.timeline_cards, bg=background, highlightbackground=THEME["line"], highlightthickness=1, cursor="hand2")
+            card.pack(fill=tk.X, padx=10, pady=(0 if index else 10, 6))
+            accent = tk.Frame(card, bg=stripe, width=4)
+            accent.pack(side=tk.LEFT, fill=tk.Y)
+            content = tk.Frame(card, bg=background, padx=14, pady=12)
+            content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            dot_color = THEME["active"] if event.event_type == "commit" else THEME["attention"] if event.source == "manual" else THEME["primary"]
+            dot = tk.Label(content, text="●", bg=background, fg=dot_color, font=("Segoe UI", 11))
+            dot.grid(row=0, column=0, sticky="nw", padx=(0, 10))
+            title = tk.Label(content, text=event.summary, bg=background, fg=THEME["ink"],
+                             font=("Segoe UI", 10, "bold"), anchor="w", justify=tk.LEFT, wraplength=350)
+            title.grid(row=0, column=1, sticky="ew")
+            meta = tk.Label(content, text=f"{project.get('name', '')} · {event_names.get(event.event_type, event.event_type)}",
+                            bg=background, fg=THEME["muted"], font=("Segoe UI", 9), anchor="w")
+            meta.grid(row=1, column=1, sticky="w", pady=(4, 0))
+            when = tk.Label(content, text=f"{format_display_datetime(event.at)} · {event.source}",
+                            bg=background, fg=THEME["muted"], font=("Segoe UI", 9), anchor="w")
+            when.grid(row=2, column=1, sticky="w", pady=(2, 0))
+            content.columnconfigure(1, weight=1)
+            parts = (card, accent, content, dot, title, meta, when)
+            self.timeline_card_parts[item_id] = parts
+            for widget in parts:
+                widget.bind("<Button-1>", lambda _event, key=item_id: self._select_timeline_event(key))
+                widget.bind("<MouseWheel>", lambda event: self.timeline_canvas.yview_scroll(mousewheel_scroll_units(event.delta), "units"))
         if records:
-            first_id = "event:0"
-            self.timeline_tree.selection_set(first_id)
-            self.timeline_tree.focus(first_id)
-            self._on_timeline_select(None)
+            self._select_timeline_event("event:0")
+            self.timeline_canvas.yview_moveto(0)
         else:
             self._write_timeline_detail("暂无时间线事件", "调整筛选条件或先执行一次扫描。")
 
@@ -1254,18 +1274,32 @@ class ProjectManagerApp:
         self.timeline_detail.insert(tk.END, body, "muted")
         self.timeline_detail.configure(state=tk.DISABLED)
 
-    def _on_timeline_select(self, _event: tk.Event | None) -> None:
-        selected = self.timeline_tree.selection()
-        if not selected or selected[0] not in self.timeline_event_map:
+    def _select_timeline_event(self, item_id: str) -> None:
+        if item_id not in self.timeline_event_map:
             return
-        project, event = self.timeline_event_map[selected[0]]
+        for key in (self.timeline_selected_id, item_id):
+            if key not in self.timeline_card_parts:
+                continue
+            card, accent, content, dot, title, meta, when = self.timeline_card_parts[key]
+            selected = key == item_id
+            background = THEME["primary_soft"] if selected else THEME["card"]
+            card.configure(bg=background)
+            accent.configure(bg=THEME["primary"] if selected else THEME["line"])
+            for widget in (content, dot, title, meta, when):
+                widget.configure(bg=background)
+        self.timeline_selected_id = item_id
+        project, event = self.timeline_event_map[item_id]
+        event_names = {
+            "created": "创建时间", "last_modified": "项目修改", "commit": "Git 提交",
+            "working_tree": "工作树修改", "validation": "验证事件",
+            "manual": "人工记录", "github_open_source": "GitHub 开源",
+        }
         body = (
             f"项目：{project.get('name', '')}\n"
+            f"类型：{event_names.get(event.event_type, event.event_type)}\n"
             f"时间：{format_display_datetime(event.at)}\n"
-            f"事件类型：{event.event_type}\n"
             f"来源：{event.source}\n\n"
-            f"摘要：{event.summary}\n\n"
-            "来源字段保留原始证据边界，未推断项目完成度。"
+            "此记录来自项目扫描或人工字段；事件本身不代表项目已完成。"
         )
         self._write_timeline_detail(event.summary, body)
 

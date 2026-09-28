@@ -144,7 +144,16 @@ def test_settings_page_exposes_grouped_configuration_sections(tmp_path):
             no_tray=True,
         )
         assert app.timeline_page.winfo_manager() == "pack"
-        assert app.timeline_tree.get_children()
+        assert app.timeline_event_map
+        assert app.timeline_selected_id == "event:0"
+        assert app.timeline_cards.winfo_children()
+        assert app.timeline_detail.get("1.0", tk.END).startswith("项目最后修改")
+        app._select_timeline_event("event:1")
+        assert app.timeline_detail.get("1.0", tk.END).startswith("项目创建时间")
+        app.timeline_type_var.set("创建时间")
+        app._render_timeline_page()
+        assert len(app.timeline_event_map) == 1
+        assert app.timeline_selected_id == "event:0"
         assert app.scan_history_tree.winfo_exists()
         assert app.project_sort_var.get() == "最近修改"
         assert app._window_icon is not None
