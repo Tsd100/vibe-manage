@@ -65,6 +65,7 @@ def _git(repo: Path, *args: str, timeout: float = 8.0) -> str:
             errors="replace",
             timeout=timeout,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
@@ -82,6 +83,7 @@ def _git_result(repo: Path, *args: str, timeout: float = 8.0) -> tuple[bool, str
             errors="replace",
             timeout=timeout,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False, ""

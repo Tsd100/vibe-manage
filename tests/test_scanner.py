@@ -109,3 +109,22 @@ def test_scan_projects_includes_auto_github_fields(tmp_path, monkeypatch):
     assert project["github_open_source"] == "是"
     assert project["github_open_source_source"] == "auto_git_remote"
     assert project["github_remote_url"] == "https://github.com/acme/demo.git"
+
+
+def test_git_commands_do_not_open_windows_console(monkeypatch, tmp_path):
+    import subprocess
+
+    from project_manager import scanner
+
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(args[0], 0, stdout="")
+
+    monkeypatch.setattr(scanner.subprocess, "run", fake_run)
+    scanner._git(tmp_path, "status", "--short")
+    scanner._git_result(tmp_path, "remote", "-v")
+
+    assert len(calls) == 2
+    assert all(call.get("creationflags") == getattr(subprocess, "CREATE_NO_WINDOW", 0) for call in calls)
