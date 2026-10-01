@@ -5,6 +5,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Iterable
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 from .models import derive_creation_time
@@ -152,21 +153,8 @@ def _iso_from_mtime(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
 
-def earliest_source_file_time(repo: Path) -> str | None:
+def source_file_time_range(repo: Path) -> tuple[str | None, str | None]:
     earliest: float | None = None
-    for current, dirs, files in os.walk(repo, topdown=True):
-        dirs[:] = [d for d in dirs if not should_skip_directory(d)]
-        for name in files:
-            path = Path(current) / name
-            try:
-                value = path.stat().st_mtime
-            except OSError:
-                continue
-            earliest = value if earliest is None else min(earliest, value)
-    return _iso_from_mtime(earliest) if earliest is not None else None
-
-
-def latest_source_file_time(repo: Path) -> str | None:
     latest: float | None = None
     for current, dirs, files in os.walk(repo, topdown=True):
         dirs[:] = [d for d in dirs if not should_skip_directory(d)]
@@ -176,8 +164,20 @@ def latest_source_file_time(repo: Path) -> str | None:
                 value = path.stat().st_mtime
             except OSError:
                 continue
+            earliest = value if earliest is None else min(earliest, value)
             latest = value if latest is None else max(latest, value)
-    return _iso_from_mtime(latest) if latest is not None else None
+    return (
+        _iso_from_mtime(earliest) if earliest is not None else None,
+        _iso_from_mtime(latest) if latest is not None else None,
+    )
+
+
+def earliest_source_file_time(repo: Path) -> str | None:
+    return source_file_time_range(repo)[0]
+
+
+def latest_source_file_time(repo: Path) -> str | None:
+    return source_file_time_range(repo)[1]
 
 
 def _purpose(repo: Path) -> str:
@@ -198,18 +198,24 @@ def _purpose(repo: Path) -> str:
     return "用途待补充"
 
 
-def scan_projects(root: Path | Iterable[Path], max_depth: int = 5) -> list[dict[str, object]]:
+def scan_projects(
+    root: Path | Iterable[Path],
+    max_depth: int = 5,
+    progress: Callable[[int, int, str], None] | None = None,
+) -> list[dict[str, object]]:
     roots = [Path(root)] if isinstance(root, (str, Path)) else [Path(item) for item in root]
     repositories = discover_repositories_many(roots, max_depth=max_depth)
     multiple_roots = len(roots) > 1
     projects: list[dict[str, object]] = []
-    for owner_root, repo in repositories:
+    total = len(repositories)
+    if progress is not None:
+        progress(0, total, "")
+    for index, (owner_root, repo) in enumerate(repositories, start=1):
         relative = repo.relative_to(owner_root).as_posix()
         metadata = git_metadata(repo)
-        filesystem_created = earliest_source_file_time(repo)
+        filesystem_created, working_modified = source_file_time_range(repo)
         creation = derive_creation_time(metadata.get("first_commit_at"), filesystem_created, None)
         last_commit = metadata.get("last_commit_at")
-        working_modified = latest_source_file_time(repo)
         timestamps = [value for value in (last_commit, working_modified) if isinstance(value, str)]
         record = {
             "id": (
@@ -242,4 +248,6 @@ def scan_projects(root: Path | Iterable[Path], max_depth: int = 5) -> list[dict[
             "github_open_source_history": [],
         }
         projects.append(record)
+        if progress is not None:
+            progress(index, total, repo.name)
     return projects

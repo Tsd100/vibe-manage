@@ -128,3 +128,37 @@ def test_git_commands_do_not_open_windows_console(monkeypatch, tmp_path):
 
     assert len(calls) == 2
     assert all(call.get("creationflags") == getattr(subprocess, "CREATE_NO_WINDOW", 0) for call in calls)
+
+
+def test_scan_projects_reports_repository_progress(tmp_path, monkeypatch):
+    from project_manager import scanner
+
+    for name in ("alpha", "beta"):
+        (tmp_path / name / ".git").mkdir(parents=True)
+    monkeypatch.setattr(scanner, "git_metadata", lambda _repo: {})
+    progress = []
+
+    scanner.scan_projects(tmp_path, progress=lambda done, total, name: progress.append((done, total, name)))
+
+    assert progress == [(0, 2, ""), (1, 2, "alpha"), (2, 2, "beta")]
+
+
+def test_scan_projects_walks_source_files_once_per_repository(tmp_path, monkeypatch):
+    from project_manager import scanner
+
+    repo = tmp_path / "alpha"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "README.md").write_text("# Alpha\n\nA project description.", encoding="utf-8")
+    monkeypatch.setattr(scanner, "git_metadata", lambda _repo: {})
+    actual_walk = scanner.os.walk
+    walked = []
+
+    def counting_walk(path, *args, **kwargs):
+        if path == repo:
+            walked.append(path)
+        return actual_walk(path, *args, **kwargs)
+
+    monkeypatch.setattr(scanner.os, "walk", counting_walk)
+    scanner.scan_projects(tmp_path)
+
+    assert walked == [repo]

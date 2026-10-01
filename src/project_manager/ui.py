@@ -272,6 +272,13 @@ PRIORITY_OPTIONS = ("未确认", "低", "中", "高")
 GITHUB_OPEN_SOURCE_OPTIONS = ("未确认", "是", "否")
 
 
+def format_scan_progress(done: int, total: int, name: str) -> str:
+    if total == 0:
+        return "扫描中：未发现项目仓库"
+    suffix = f" · {name}" if name else ""
+    return f"扫描中：{done}/{total} 个项目{suffix}"
+
+
 def format_display_datetime(value: Any) -> str:
     """Format stored timestamps as Beijing time for compact UI display."""
     text = str(value or "").strip()
@@ -1823,13 +1830,25 @@ class ProjectManagerApp:
             return
         self._refreshing = True
         self.refresh_button.configure(state=tk.DISABLED)
-        self.status_var.set("扫描中……")
+        self.status_var.set("正在查找项目仓库……")
+        self.scan_status_page_var.set("正在查找项目仓库……")
         threading.Thread(target=self._scan_worker, name="project-manager-scan", daemon=True).start()
+
+    def _show_scan_progress(self, done: int, total: int, name: str) -> None:
+        message = format_scan_progress(done, total, name)
+        self.status_var.set(message)
+        self.scan_status_page_var.set(message)
 
     def _scan_worker(self) -> None:
         started_at = datetime.now().astimezone()
         try:
-            scanned = scan_projects(self.repo_roots, max_depth=self.settings.scan_max_depth)
+            scanned = scan_projects(
+                self.repo_roots,
+                max_depth=self.settings.scan_max_depth,
+                progress=lambda done, total, name: self.root.after(
+                    0, self._show_scan_progress, done, total, name
+                ),
+            )
             overrides = self._overrides_store.load(default={}) or {}
             previous = {str(item.get("id")): item for item in self.projects}
             merged: list[dict[str, Any]] = []

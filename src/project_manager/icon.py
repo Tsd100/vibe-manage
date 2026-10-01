@@ -28,6 +28,26 @@ def create_app_icon(size: int = 64) -> Image.Image:
     if not isinstance(size, int) or size < 16:
         raise ValueError("icon size must be an integer of at least 16 pixels")
 
+    if size <= 48:
+        scale = 4
+        canvas = size * scale
+        image = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle(
+            (2 * scale, 2 * scale, canvas - 2 * scale, canvas - 2 * scale),
+            radius=round(size * 0.18 * scale), fill=(37, 99, 235, 255),
+        )
+        draw.rounded_rectangle(
+            (round(canvas * .19), round(canvas * .20), round(canvas * .81), round(canvas * .78)),
+            radius=round(canvas * .07), fill=(239, 246, 255, 255),
+        )
+        for left, top, right in ((.28, .38, .72), (.28, .56, .62)):
+            draw.rounded_rectangle(
+                (round(canvas * left), round(canvas * top), round(canvas * right), round(canvas * (top + .08))),
+                radius=round(canvas * .04), fill=(29, 78, 216, 255),
+            )
+        return image.resize((size, size), Image.Resampling.LANCZOS)
+
     image = Image.new("RGBA", (_CANVAS_SIZE, _CANVAS_SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
@@ -67,5 +87,6 @@ def save_app_icon(path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     image = create_app_icon(max(ICON_SIZES))
-    image.save(target, format="ICO", sizes=[(size, size) for size in ICON_SIZES])
+    small_frames = [create_app_icon(size) for size in ICON_SIZES if size < max(ICON_SIZES)]
+    image.save(target, format="ICO", sizes=[(size, size) for size in ICON_SIZES], append_images=small_frames)
     return target

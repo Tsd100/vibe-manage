@@ -8,6 +8,7 @@ from project_manager.ui import (
     DATETIME_FORMAT,
     format_manual_datetime,
     format_display_datetime,
+    format_scan_progress,
     format_recent_datetime,
     mousewheel_scroll_units,
     clamp_window_position,
@@ -71,6 +72,12 @@ def test_mousewheel_scroll_units_supports_windows_wheel_deltas():
     assert mousewheel_scroll_units(-120) == 1
     assert mousewheel_scroll_units(240) == -2
     assert mousewheel_scroll_units(0) == 0
+
+
+def test_scan_progress_message_reports_repository_count_and_name():
+    assert format_scan_progress(0, 49, "") == "扫描中：0/49 个项目"
+    assert format_scan_progress(12, 49, "alpha") == "扫描中：12/49 个项目 · alpha"
+    assert format_scan_progress(0, 0, "") == "扫描中：未发现项目仓库"
 
 
 def test_clamp_window_position_keeps_titlebar_and_recovery_edge_visible():
