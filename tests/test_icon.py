@@ -47,3 +47,13 @@ def test_saved_ico_contains_dedicated_small_frame(tmp_path: Path):
     with Image.open(target) as image:
         small_frame = image.ico.getimage((32, 32)).convert("RGBA")
     assert ImageChops.difference(small_frame, create_app_icon(32)).getbbox() is None
+
+
+def test_200_percent_taskbar_frame_uses_simplified_artwork(tmp_path: Path):
+    image = create_app_icon(64)
+    target = save_app_icon(tmp_path / "taskbar.ico")
+
+    assert image.getpixel((32, 54))[2] > image.getpixel((32, 54))[1]
+    with Image.open(target) as ico:
+        taskbar_frame = ico.ico.getimage((64, 64)).convert("RGBA")
+    assert ImageChops.difference(taskbar_frame, image).getbbox() is None

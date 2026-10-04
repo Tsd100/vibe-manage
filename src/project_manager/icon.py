@@ -28,7 +28,7 @@ def create_app_icon(size: int = 64) -> Image.Image:
     if not isinstance(size, int) or size < 16:
         raise ValueError("icon size must be an integer of at least 16 pixels")
 
-    if size <= 48:
+    if size <= 64:
         scale = 4
         canvas = size * scale
         image = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
