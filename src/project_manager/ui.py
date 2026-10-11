@@ -7,7 +7,7 @@ import tkinter as tk
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 from typing import Any, Iterable, Mapping
 
 from PIL import ImageTk
@@ -30,7 +30,7 @@ from .settings import (
 )
 from .storage import JsonStore, merge_manual_overrides, preserve_scan_fields
 from .timeline import project_events
-from .windows import set_windows_window_icon
+from .windows import set_windows_window_icon, window_dpi
 
 
 @dataclass
@@ -484,7 +484,9 @@ class ProjectManagerApp:
         self.projects: list[dict[str, Any]] = []
         self._refreshing = False
         self._window_clamp_pending = False
+        self._dpi_sync_pending = False
         self._window_drag_offset: tuple[int, int] | None = None
+        self._fonts: dict[tuple[int, str], tkfont.Font] = {}
         self._registry_store = JsonStore(self.config.data_dir / "inventory" / "projects-registry.json")
         self._scan_history_store = JsonStore(self.config.data_dir / "inventory" / "scan-history.json")
         self._overrides_store = JsonStore(self.config.data_dir / "overrides" / "project-overrides.json")
@@ -514,6 +516,43 @@ class ProjectManagerApp:
     def _apply_ui_scale(self) -> None:
         scale = ui_scale_factor(self.settings.ui_scale, self._system_tk_scaling)
         self.root.tk.call("tk", "scaling", scale)
+        for (size, _weight), font in self._fonts.items():
+            font.configure(size=size)
+        for name in ("TkDefaultFont", "TkTextFont", "TkFixedFont", "TkMenuFont", "TkHeadingFont"):
+            try:
+                font = tkfont.nametofont(name, root=self.root)
+                font.configure(size=font.cget("size"))
+            except tk.TclError:
+                continue
+        if hasattr(self, "_sidebar"):
+            self._resize_sidebar()
+
+    def _font(self, size: int, weight: str = "normal") -> tkfont.Font:
+        key = (size, weight)
+        if key not in self._fonts:
+            self._fonts[key] = tkfont.Font(root=self.root, family="Segoe UI", size=size, weight=weight)
+        return self._fonts[key]
+
+    def _resize_sidebar(self) -> None:
+        title_font = self._font(15, "bold")
+        self._sidebar.configure(width=max(178, title_font.measure("MANAGE") + 48))
+        self._sidebar_logo_area.configure(height=max(116, title_font.metrics("linespace") * 2 + 36))
+
+    def _schedule_dpi_sync(self, event: tk.Event) -> None:
+        if event.widget is self.root and not self._dpi_sync_pending:
+            self._dpi_sync_pending = True
+            self.root.after_idle(self._sync_window_dpi)
+
+    def _sync_window_dpi(self) -> None:
+        self._dpi_sync_pending = False
+        dpi = window_dpi(self.root)
+        if dpi is None:
+            return
+        system_scale = dpi / 72
+        if abs(system_scale - self._system_tk_scaling) < 0.02:
+            return
+        self._system_tk_scaling = system_scale
+        self._apply_ui_scale()
 
     def _repo_roots_text(self) -> str:
         return "\n".join(str(path) for path in self.repo_roots) or "未配置项目根目录"
@@ -555,28 +594,28 @@ class ProjectManagerApp:
             pass
         style.configure("App.TFrame", background=THEME["canvas"])
         style.configure("Title.TLabel", background=THEME["canvas"], foreground=THEME["ink"],
-                        font=("Segoe UI", 19, "bold"))
+                        font=self._font(19, "bold"))
         style.configure("Subtitle.TLabel", background=THEME["canvas"], foreground=THEME["muted"],
-                        font=("Segoe UI", 9))
+                        font=self._font(9))
         style.configure("Section.TLabel", background=THEME["card"], foreground=THEME["ink"],
-                        font=("Segoe UI", 11, "bold"))
+                        font=self._font(11, "bold"))
         style.configure("Hint.TLabel", background=THEME["card"], foreground=THEME["muted"],
-                        font=("Segoe UI", 9))
+                        font=self._font(9))
         style.configure("Search.TEntry", padding=(10, 7), fieldbackground=THEME["card"])
         style.configure("Filter.TCombobox", padding=(4, 3), fieldbackground=THEME["card"],
                         foreground=THEME["ink"])
         style.configure("Filter.TCheckbutton", background=THEME["card"], foreground=THEME["muted"],
-                        font=("Segoe UI", 9))
-        style.configure("Primary.TButton", padding=(12, 7), font=("Segoe UI", 9, "bold"),
+                        font=self._font(9))
+        style.configure("Primary.TButton", padding=(12, 7), font=self._font(9, "bold"),
                         foreground="#ffffff", background=THEME["primary"])
         style.map("Primary.TButton", background=[("active", "#1d4ed8"), ("disabled", "#9ab5e8")])
-        style.configure("Secondary.TButton", padding=(10, 7), font=("Segoe UI", 9),
+        style.configure("Secondary.TButton", padding=(10, 7), font=self._font(9),
                         foreground=THEME["ink"], background=THEME["card"])
         style.configure("Project.Treeview", background=THEME["card"], fieldbackground=THEME["card"],
                         foreground=THEME["ink"], rowheight=31 if self.settings.compact_layout else 38, borderwidth=0,
-                        font=("Segoe UI", 9))
+                        font=self._font(9))
         style.configure("Project.Treeview.Heading", background=THEME["card"], foreground=THEME["muted"],
-                        font=("Segoe UI", 9, "bold"), padding=(7, 8), relief="flat")
+                        font=self._font(9, "bold"), padding=(7, 8), relief="flat")
         style.map("Project.Treeview", background=[("selected", THEME["primary_soft"])],
                   foreground=[("selected", THEME["ink"])])
         style.configure("Vertical.TScrollbar", background=THEME["line"], troughcolor=THEME["canvas"],
@@ -589,9 +628,9 @@ class ProjectManagerApp:
         body = tk.Frame(card, bg=THEME["card"], padx=14, pady=10)
         body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tk.Label(body, text=title, bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 9)).pack(anchor="w")
+                 font=self._font(9)).pack(anchor="w")
         tk.Label(body, textvariable=variable, bg=THEME["card"], fg=THEME["ink"],
-                 font=("Segoe UI", 20, "bold")).pack(anchor="w", pady=(2, 0))
+                 font=self._font(20, "bold")).pack(anchor="w", pady=(2, 0))
         return card
 
     def _build_widgets(self) -> None:
@@ -613,6 +652,7 @@ class ProjectManagerApp:
         self.root.geometry("1280x780")
         self.root.minsize(1020, 640)
         self.root.bind("<Configure>", lambda _event: self._schedule_window_visibility(), add="+")
+        self.root.bind("<Configure>", self._schedule_dpi_sync, add="+")
         self.root.bind("<Control-Shift-r>", self._restore_window_shortcut, add="+")
         self.root.configure(bg=THEME["canvas"])
         self._configure_styles()
@@ -623,16 +663,19 @@ class ProjectManagerApp:
         shell.pack(fill=tk.BOTH, expand=True)
 
         sidebar = tk.Frame(shell, bg=THEME["sidebar"], width=178)
+        self._sidebar = sidebar
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
         sidebar_logo_area = tk.Frame(sidebar, bg=THEME["sidebar"], height=116)
+        self._sidebar_logo_area = sidebar_logo_area
         sidebar_logo_area.pack(fill=tk.X, padx=10, pady=(10, 18))
         sidebar_logo_area.pack_propagate(False)
         tk.Label(sidebar_logo_area, text="VIBE\nMANAGE", bg=THEME["sidebar"], fg="#ffffff",
-                 font=("Segoe UI", 15, "bold"), justify=tk.LEFT).pack(anchor="w", padx=10, pady=(14, 0))
+                 font=self._font(15, "bold"), justify=tk.LEFT).pack(anchor="w", padx=10, pady=(14, 0))
+        self._resize_sidebar()
         self._bind_window_drag(sidebar_logo_area)
         tk.Label(sidebar, text="工作台", bg=THEME["sidebar"], fg="#7188a6",
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill=tk.X, padx=20, pady=(0, 8))
+                 font=self._font(8, "bold"), anchor="w").pack(fill=tk.X, padx=20, pady=(0, 8))
         self.nav_buttons: dict[str, tk.Button] = {}
         for label in SUPPORTED_PAGES:
             button = tk.Button(
@@ -640,17 +683,17 @@ class ProjectManagerApp:
                 bg=THEME["sidebar_active"] if label == "项目总览" else THEME["sidebar"],
                 fg="#ffffff" if label == "项目总览" else THEME["sidebar_muted"],
                 activebackground=THEME["sidebar_active"], activeforeground="#ffffff",
-                font=("Segoe UI", 10), padx=6, pady=9,
+                font=self._font(10), padx=6, pady=9,
                 command=lambda page=label: self.show_page(page),
             )
             button.pack(fill=tk.X, padx=10, pady=2)
             self.nav_buttons[label] = button
         tk.Frame(sidebar, bg="#28415f", height=1).pack(fill=tk.X, padx=18, pady=(28, 14))
         tk.Label(sidebar, text="项目根目录", bg=THEME["sidebar"], fg="#7188a6",
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill=tk.X, padx=20)
+                 font=self._font(8, "bold"), anchor="w").pack(fill=tk.X, padx=20)
         self.repo_roots_var = tk.StringVar(value=self._repo_roots_text())
         tk.Label(sidebar, textvariable=self.repo_roots_var, bg=THEME["sidebar"], fg=THEME["sidebar_muted"],
-                 font=("Segoe UI", 8), justify=tk.LEFT, anchor="w", wraplength=138).pack(fill=tk.X, padx=20, pady=(5, 0))
+                 font=self._font(8), justify=tk.LEFT, anchor="w", wraplength=138).pack(fill=tk.X, padx=20, pady=(5, 0))
         sidebar_drag_area = tk.Frame(sidebar, bg=THEME["sidebar"])
         sidebar_drag_area.pack(fill=tk.BOTH, expand=True)
         self._bind_window_drag(sidebar_drag_area)
@@ -704,10 +747,10 @@ class ProjectManagerApp:
         list_title_row = tk.Frame(list_header, bg=THEME["card"])
         list_title_row.pack(fill=tk.X)
         tk.Label(list_title_row, text="我的项目", bg=THEME["card"], fg=THEME["ink"],
-                 font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+                 font=self._font(11, "bold")).pack(side=tk.LEFT)
         self.list_count_var = tk.StringVar(value="0 个项目")
         tk.Label(list_title_row, textvariable=self.list_count_var, bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.RIGHT)
+                 font=self._font(9)).pack(side=tk.RIGHT)
         filter_row = tk.Frame(list_header, bg=THEME["card"])
         filter_row.pack(fill=tk.X, pady=(11, 0))
         self.status_filter_var = tk.StringVar(value="全部状态")
@@ -723,7 +766,7 @@ class ProjectManagerApp:
         phase_filter.pack(side=tk.LEFT, padx=(0, 8))
         phase_filter.bind("<<ComboboxSelected>>", lambda _event: self._render_projects())
         tk.Label(filter_row, text="排序", bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(4, 5))
+                 font=self._font(9)).pack(side=tk.LEFT, padx=(4, 5))
         self.project_sort_var = tk.StringVar(value=self.settings.project_sort)
         project_sort = ttk.Combobox(filter_row, textvariable=self.project_sort_var, state="readonly",
                                     values=PROJECT_SORT_OPTIONS, width=11, style="Filter.TCombobox")
@@ -759,12 +802,12 @@ class ProjectManagerApp:
         detail_title_row = tk.Frame(detail_header, bg=THEME["card"])
         detail_title_row.pack(fill=tk.X)
         tk.Label(detail_title_row, text="项目详情", bg=THEME["card"], fg=THEME["ink"],
-                 font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+                 font=self._font(11, "bold")).pack(side=tk.LEFT)
         self.detail_badge = tk.Label(detail_title_row, text="已选择", bg=THEME["active_soft"], fg=THEME["active"],
-                                     font=("Segoe UI", 8, "bold"), padx=9, pady=3)
+                                     font=self._font(8, "bold"), padx=9, pady=3)
         self.detail_badge.pack(side=tk.RIGHT)
         tk.Label(detail_header, text="选择左侧项目查看用途、时间线和验证状态", bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 0))
+                 font=self._font(9)).pack(anchor="w", pady=(3, 0))
         tk.Frame(right, bg=THEME["line"], height=1).pack(fill=tk.X)
         detail_wrap = tk.Frame(right, bg=THEME["card"], padx=18, pady=12)
         detail_wrap.pack(fill=tk.BOTH, expand=True)
@@ -793,11 +836,11 @@ class ProjectManagerApp:
         timeline_toolbar = tk.Frame(self.timeline_page, bg=THEME["canvas"])
         timeline_toolbar.pack(fill=tk.X, pady=(16, 10))
         tk.Label(timeline_toolbar, text="全局时间线", bg=THEME["canvas"], fg=THEME["ink"],
-                 font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT)
+                 font=self._font(12, "bold")).pack(side=tk.LEFT)
         filters = tk.Frame(timeline_toolbar, bg=THEME["canvas"])
         filters.pack(side=tk.RIGHT)
         tk.Label(filters, text="项目", bg=THEME["canvas"], fg=THEME["muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+                 font=self._font(9)).pack(side=tk.LEFT)
         self.timeline_project_var = tk.StringVar(value="全部项目")
         self.timeline_project_box = ttk.Combobox(filters, textvariable=self.timeline_project_var,
                                                   state="readonly", values=("全部项目",), width=18,
@@ -805,7 +848,7 @@ class ProjectManagerApp:
         self.timeline_project_box.pack(side=tk.LEFT, padx=(5, 10))
         self.timeline_project_box.bind("<<ComboboxSelected>>", lambda _event: self._render_timeline_page())
         tk.Label(filters, text="事件", bg=THEME["canvas"], fg=THEME["muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+                 font=self._font(9)).pack(side=tk.LEFT)
         self.timeline_type_var = tk.StringVar(value="全部事件")
         self.timeline_type_box = ttk.Combobox(filters, textvariable=self.timeline_type_var,
                                                state="readonly",
@@ -836,18 +879,18 @@ class ProjectManagerApp:
         self.timeline_detail = tk.Text(
             timeline_right, wrap=tk.WORD, state=tk.DISABLED, padx=16, pady=16,
             bg=THEME["card"], fg=THEME["ink"], relief="flat", borderwidth=0,
-            font=("Segoe UI", 10),
+            font=self._font(10),
         )
-        self.timeline_detail.tag_configure("title", font=("Segoe UI", 14, "bold"), foreground=THEME["ink"])
+        self.timeline_detail.tag_configure("title", font=self._font(14, "bold"), foreground=THEME["ink"])
         self.timeline_detail.tag_configure("muted", foreground=THEME["muted"])
-        self.timeline_detail.tag_configure("label", font=("Segoe UI", 9, "bold"), foreground=THEME["muted"])
+        self.timeline_detail.tag_configure("label", font=self._font(9, "bold"), foreground=THEME["muted"])
         self.timeline_detail.pack(fill=tk.BOTH, expand=True)
 
         self.scan_page = tk.Frame(workspace, bg=THEME["canvas"])
         scan_toolbar = tk.Frame(self.scan_page, bg=THEME["canvas"])
         scan_toolbar.pack(fill=tk.X, pady=(16, 10))
         tk.Label(scan_toolbar, text="扫描记录", bg=THEME["canvas"], fg=THEME["ink"],
-                 font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT)
+                 font=self._font(12, "bold")).pack(side=tk.LEFT)
         ttk.Button(scan_toolbar, text="重新扫描", command=self.refresh, style="Primary.TButton").pack(side=tk.RIGHT)
         scan_info = tk.Frame(self.scan_page, bg=THEME["card"], highlightbackground=THEME["line"], highlightthickness=1,
                              padx=18, pady=16)
@@ -862,9 +905,9 @@ class ProjectManagerApp:
                                                   ("最近扫描", self.scan_generated_var),
                                                   ("状态", self.scan_status_page_var))):
             tk.Label(scan_info, text=label, bg=THEME["card"], fg=THEME["muted"],
-                     font=("Segoe UI", 9, "bold")).grid(row=row, column=0, sticky="w", pady=5)
+                     font=self._font(9, "bold")).grid(row=row, column=0, sticky="w", pady=5)
             tk.Label(scan_info, textvariable=variable, bg=THEME["card"], fg=THEME["ink"],
-                     font=("Segoe UI", 9), anchor="w", justify=tk.LEFT, wraplength=650).grid(row=row, column=1, sticky="w", padx=(16, 0), pady=5)
+                     font=self._font(9), anchor="w", justify=tk.LEFT, wraplength=650).grid(row=row, column=1, sticky="w", padx=(16, 0), pady=5)
         scan_info.columnconfigure(1, weight=1)
         scan_history = tk.Frame(self.scan_page, bg=THEME["card"], highlightbackground=THEME["line"], highlightthickness=1,
                                 padx=12, pady=12)
@@ -872,10 +915,10 @@ class ProjectManagerApp:
         history_header = tk.Frame(scan_history, bg=THEME["card"])
         history_header.pack(fill=tk.X, pady=(0, 8))
         tk.Label(history_header, text="最近扫描记录", bg=THEME["card"], fg=THEME["ink"],
-                 font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+                 font=self._font(10, "bold")).pack(side=tk.LEFT)
         self.scan_history_detail_var = tk.StringVar(value="扫描完成后会在这里保留时间、耗时和结果。")
         tk.Label(history_header, textvariable=self.scan_history_detail_var, bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 8), anchor="e").pack(side=tk.RIGHT)
+                 font=self._font(8), anchor="e").pack(side=tk.RIGHT)
         history_wrap = tk.Frame(scan_history, bg=THEME["card"])
         history_wrap.pack(fill=tk.BOTH, expand=True)
         self.scan_history_tree = ttk.Treeview(
@@ -898,9 +941,9 @@ class ProjectManagerApp:
                              padx=18, pady=16)
         scan_note.pack(fill=tk.X, pady=(14, 0))
         tk.Label(scan_note, text="只读边界", bg=THEME["card"], fg=THEME["ink"],
-                 font=("Segoe UI", 11, "bold")).pack(anchor="w")
+                 font=self._font(11, "bold")).pack(anchor="w")
         tk.Label(scan_note, text="刷新只读取 Git 元数据、README 和文件时间，并把结果写入 D 盘数据目录；不会修改 D:\\Github 下的业务仓库。",
-                 bg=THEME["card"], fg=THEME["muted"], font=("Segoe UI", 9),
+                 bg=THEME["card"], fg=THEME["muted"], font=self._font(9),
                  justify=tk.LEFT, anchor="w", wraplength=760).pack(anchor="w", pady=(8, 0))
 
         self.settings_page = tk.Frame(workspace, bg=THEME["canvas"])
@@ -948,9 +991,9 @@ class ProjectManagerApp:
         header = tk.Frame(settings_body, bg=THEME["canvas"])
         header.pack(fill=tk.X, pady=(0, 14))
         tk.Label(header, text="设置", bg=THEME["canvas"], fg=THEME["ink"],
-                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
+                 font=self._font(14, "bold")).pack(anchor="w")
         tk.Label(header, text="参考 skillmanage 的分组设置方式，保存后写入 D 盘数据目录。",
-                 bg=THEME["canvas"], fg=THEME["muted"], font=("Segoe UI", 9),
+                 bg=THEME["canvas"], fg=THEME["muted"], font=self._font(9),
                  justify=tk.LEFT, anchor="w", wraplength=800).pack(anchor="w", pady=(4, 0))
 
         def make_section(title: str, description: str) -> tk.Frame:
@@ -958,9 +1001,9 @@ class ProjectManagerApp:
                             highlightthickness=1, padx=18, pady=14)
             card.pack(fill=tk.X, pady=(0, 12))
             tk.Label(card, text=title, bg=THEME["card"], fg=THEME["ink"],
-                     font=("Segoe UI", 10, "bold"), anchor="w").pack(anchor="w")
+                     font=self._font(10, "bold"), anchor="w").pack(anchor="w")
             tk.Label(card, text=description, bg=THEME["card"], fg=THEME["muted"],
-                     font=("Segoe UI", 8), anchor="w", justify=tk.LEFT,
+                     font=self._font(8), anchor="w", justify=tk.LEFT,
                      wraplength=800).pack(anchor="w", pady=(3, 10))
             content = tk.Frame(card, bg=THEME["card"])
             content.pack(fill=tk.X)
@@ -989,7 +1032,7 @@ class ProjectManagerApp:
             roots_list_frame, height=4, width=80, selectmode=tk.SINGLE,
             bg=THEME["card"], fg=THEME["ink"], highlightbackground=THEME["line"],
             highlightcolor=THEME["primary"], relief="solid", borderwidth=1,
-            activestyle="none", font=("Segoe UI", 9), exportselection=False,
+            activestyle="none", font=self._font(9), exportselection=False,
         )
         self.settings_roots_list.pack(side=tk.LEFT, fill=tk.X, expand=True)
         roots_scroll = ttk.Scrollbar(roots_list_frame, orient=tk.VERTICAL, command=self.settings_roots_list.yview)
@@ -1002,10 +1045,10 @@ class ProjectManagerApp:
         scan = make_section("扫描行为", "控制扫描深度和启动行为；保存后可选择立即重新扫描。")
         scan.columnconfigure(1, weight=1)
         tk.Label(scan, text="扫描最大深度", bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 9, "bold"), anchor="w").grid(row=0, column=0, sticky="w", pady=5)
+                 font=self._font(9, "bold"), anchor="w").grid(row=0, column=0, sticky="w", pady=5)
         ttk.Entry(scan, textvariable=self.settings_depth_var, width=12).grid(row=0, column=1, sticky="w", padx=(18, 0), pady=5)
         tk.Label(scan, text="范围 1—20 层，避免扫描进入过深的依赖目录。", bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 8)).grid(row=0, column=2, sticky="w", padx=(12, 0), pady=5)
+                 font=self._font(8)).grid(row=0, column=2, sticky="w", padx=(12, 0), pady=5)
         ttk.Checkbutton(scan, text="启动时自动扫描项目", variable=self.settings_auto_scan_var,
                         style="Filter.TCheckbutton").grid(row=1, column=1, sticky="w", padx=(14, 0), pady=5)
 
@@ -1018,14 +1061,14 @@ class ProjectManagerApp:
             (3, "项目排序", self.settings_project_sort_var, PROJECT_SORT_OPTIONS),
         ):
             tk.Label(display, text=label, bg=THEME["card"], fg=THEME["muted"],
-                     font=("Segoe UI", 9, "bold"), anchor="w").grid(row=row, column=0, sticky="w", pady=5)
+                     font=self._font(9, "bold"), anchor="w").grid(row=row, column=0, sticky="w", pady=5)
             ttk.Combobox(display, textvariable=variable, values=values, state="readonly", width=14,
                          style="Filter.TCombobox").grid(row=row, column=1, sticky="w", padx=(18, 0), pady=5)
         ttk.Checkbutton(display, text="紧凑项目列表（减少行高）", variable=self.settings_compact_var,
                         style="Filter.TCheckbutton").grid(row=4, column=1, sticky="w", padx=(14, 0), pady=5)
         ttk.Button(display, text="恢复表格列宽", command=self._reset_layout).grid(row=5, column=1, sticky="w", padx=(14, 0), pady=(7, 3))
         tk.Label(display, text="主题和紧凑布局将在保存并重启后完整应用。", bg=THEME["card"], fg=THEME["muted"],
-                 font=("Segoe UI", 8)).grid(row=6, column=1, sticky="w", padx=(18, 0), pady=(0, 3))
+                 font=self._font(8)).grid(row=6, column=1, sticky="w", padx=(18, 0), pady=(0, 3))
 
         window = make_section("窗口与托盘", "控制关闭窗口后的行为；关闭托盘后，窗口将直接退出应用。")
         ttk.Checkbutton(window, text="关闭窗口时收进系统托盘", variable=self.settings_tray_var,
@@ -1033,7 +1076,7 @@ class ProjectManagerApp:
 
         data = make_section("数据与诊断", "数据默认保存在 D 盘；诊断摘要只包含路径、数量和扫描时间，不包含密钥。")
         tk.Label(data, text=f"数据目录：{self.config.data_dir}", bg=THEME["card"], fg=THEME["ink"],
-                 font=("Segoe UI", 9), anchor="w", justify=tk.LEFT, wraplength=800).pack(anchor="w")
+                 font=self._font(9), anchor="w", justify=tk.LEFT, wraplength=800).pack(anchor="w")
         data_buttons = ttk.Frame(data)
         data_buttons.pack(fill=tk.X, pady=(10, 0))
         ttk.Button(data_buttons, text="打开数据目录", command=self._open_data_directory).pack(side=tk.LEFT)
@@ -1043,7 +1086,7 @@ class ProjectManagerApp:
         ttk.Button(data_buttons, text="保存并重新扫描", command=self._save_settings_and_refresh,
                    style="Secondary.TButton").pack(side=tk.RIGHT, padx=(0, 8))
         tk.Label(data, textvariable=self.settings_save_status_var, bg=THEME["card"], fg=THEME["active"],
-                 font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
+                 font=self._font(9)).pack(anchor="w", pady=(8, 0))
 
         self.secondary_pages = {
             "时间线": self.timeline_page,
@@ -1251,16 +1294,16 @@ class ProjectManagerApp:
             content = tk.Frame(card, bg=background, padx=14, pady=12)
             content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             dot_color = THEME["active"] if event.event_type == "commit" else THEME["attention"] if event.source == "manual" else THEME["primary"]
-            dot = tk.Label(content, text="●", bg=background, fg=dot_color, font=("Segoe UI", 11))
+            dot = tk.Label(content, text="●", bg=background, fg=dot_color, font=self._font(11))
             dot.grid(row=0, column=0, sticky="nw", padx=(0, 10))
             title = tk.Label(content, text=event.summary, bg=background, fg=THEME["ink"],
-                             font=("Segoe UI", 10, "bold"), anchor="w", justify=tk.LEFT, wraplength=350)
+                             font=self._font(10, "bold"), anchor="w", justify=tk.LEFT, wraplength=350)
             title.grid(row=0, column=1, sticky="ew")
             meta = tk.Label(content, text=f"{project.get('name', '')} · {event_names.get(event.event_type, event.event_type)}",
-                            bg=background, fg=THEME["muted"], font=("Segoe UI", 9), anchor="w")
+                            bg=background, fg=THEME["muted"], font=self._font(9), anchor="w")
             meta.grid(row=1, column=1, sticky="w", pady=(4, 0))
             when = tk.Label(content, text=f"{format_display_datetime(event.at)} · {event.source}",
-                            bg=background, fg=THEME["muted"], font=("Segoe UI", 9), anchor="w")
+                            bg=background, fg=THEME["muted"], font=self._font(9), anchor="w")
             when.grid(row=2, column=1, sticky="w", pady=(2, 0))
             content.columnconfigure(1, weight=1)
             parts = (card, accent, content, dot, title, meta, when)
@@ -1421,7 +1464,7 @@ class ProjectManagerApp:
             text=text or str(project.get("manual_status") or "未确认"),
             bg=background,
             fg=foreground,
-            font=("Segoe UI", 8, "bold"),
+            font=self._font(8, "bold"),
             padx=9,
             pady=3,
         )
@@ -1432,14 +1475,14 @@ class ProjectManagerApp:
         if project is None:
             self.detail_badge.configure(text="未选择", bg="#eef2f7", fg=THEME["muted"])
             tk.Label(self.detail_content, text="没有匹配的项目", bg=THEME["card"], fg=THEME["muted"],
-                     font=("Segoe UI", 11)).pack(anchor="w", pady=(14, 0))
+                     font=self._font(11)).pack(anchor="w", pady=(14, 0))
             return
 
         self.detail_badge.configure(text="已选择", bg=THEME["active_soft"], fg=THEME["active"])
         tk.Label(self.detail_content, text=str(project.get("name", "项目详情")), bg=THEME["card"],
-                 fg=THEME["ink"], font=("Segoe UI", 15, "bold")).pack(anchor="w", pady=(2, 0))
+                 fg=THEME["ink"], font=self._font(15, "bold")).pack(anchor="w", pady=(2, 0))
         tk.Label(self.detail_content, text=project_display_path(project, self.repo_roots), bg=THEME["card"],
-                 fg=THEME["muted"], font=("Segoe UI", 9), anchor="w", justify=tk.LEFT,
+                 fg=THEME["muted"], font=self._font(9), anchor="w", justify=tk.LEFT,
                  wraplength=620).pack(anchor="w", pady=(5, 12))
         tk.Frame(self.detail_content, bg=THEME["line"], height=1).pack(fill=tk.X)
 
@@ -1453,12 +1496,12 @@ class ProjectManagerApp:
             box = tk.Frame(field_grid, bg=THEME["card"])
             box.grid(row=row, column=column, columnspan=span, sticky="ew", padx=(0 if column == 0 else 12, 0), pady=(0, 13))
             tk.Label(box, text=label, bg=THEME["card"], fg=THEME["muted"],
-                     font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w")
+                     font=self._font(8, "bold"), anchor="w").pack(anchor="w")
             if label == "状态":
                 self._status_pill(box, project).pack(anchor="w", pady=(5, 0))
             else:
                 tk.Label(box, text=fields.get(label, "未知"), bg=THEME["card"], fg=THEME["ink"],
-                         font=("Segoe UI", 9), anchor="w", justify=tk.LEFT,
+                         font=self._font(9), anchor="w", justify=tk.LEFT,
                          wraplength=300).pack(anchor="w", pady=(5, 0))
 
         add_field("用途", 0, 0, 2)
@@ -1470,11 +1513,11 @@ class ProjectManagerApp:
         add_field("下一步", 4, 0, 2)
 
         tk.Label(self.detail_content, text="最近时间线", bg=THEME["card"], fg=THEME["primary"],
-                 font=("Segoe UI", 10, "bold"), anchor="w").pack(anchor="w", pady=(3, 8))
+                 font=self._font(10, "bold"), anchor="w").pack(anchor="w", pady=(3, 8))
         events = project_events(project)
         if not events:
             tk.Label(self.detail_content, text="暂无可展示事件", bg=THEME["card"], fg=THEME["muted"],
-                     font=("Segoe UI", 9)).pack(anchor="w")
+                     font=self._font(9)).pack(anchor="w")
         for index, event in enumerate(events):
             event_row = tk.Frame(self.detail_content, bg=THEME["card"])
             event_row.pack(fill=tk.X, pady=(0, 9))
@@ -1483,21 +1526,21 @@ class ProjectManagerApp:
             marker.pack_propagate(False)
             marker_color = THEME["active"] if event.source == "git" else THEME["attention"] if event.source == "manual" else THEME["primary"]
             tk.Label(marker, text="●", bg=THEME["card"], fg=marker_color,
-                     font=("Segoe UI", 10)).pack(anchor="n")
+                     font=self._font(10)).pack(anchor="n")
             if index < len(events) - 1:
                 tk.Frame(marker, bg="#cfe0ff", width=2).place(x=9, y=15, relheight=1.2)
             event_body = tk.Frame(event_row, bg=THEME["card"])
             event_body.pack(side=tk.LEFT, fill=tk.X, expand=True)
             tk.Label(event_body, text=event.summary, bg=THEME["card"], fg=THEME["ink"],
-                     font=("Segoe UI", 9, "bold"), anchor="w", justify=tk.LEFT,
+                     font=self._font(9, "bold"), anchor="w", justify=tk.LEFT,
                      wraplength=560).pack(anchor="w")
             tk.Label(event_body, text=f"{format_display_datetime(event.at)} · {event.source}", bg=THEME["card"],
-                     fg=THEME["muted"], font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(2, 0))
+                     fg=THEME["muted"], font=self._font(8), anchor="w").pack(anchor="w", pady=(2, 0))
 
         validation = project.get("validation")
         if isinstance(validation, Mapping):
             tk.Label(self.detail_content, text=f"验证：{validation.get('status', '未验证')} — {validation.get('summary', '')}",
-                     bg=THEME["card"], fg=THEME["muted"], font=("Segoe UI", 8),
+                     bg=THEME["card"], fg=THEME["muted"], font=self._font(8),
                      anchor="w", justify=tk.LEFT, wraplength=620).pack(anchor="w", pady=(3, 0))
 
     def _on_select(self, _event: tk.Event | None) -> None:

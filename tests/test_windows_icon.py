@@ -51,6 +51,8 @@ def test_icon_is_applied_to_top_level_window_at_current_dpi():
 
         hwnd = user32.GetAncestor(ctypes.c_void_p(root.winfo_id()), 2)
         dpi = user32.GetDpiForWindow(hwnd)
+        import project_manager.windows as windows_module
+        assert windows_module.window_dpi(root) == dpi
         big_icon = user32.SendMessageW(hwnd, 0x007F, ctypes.c_void_p(1), None)
         small_icon = user32.SendMessageW(hwnd, 0x007F, ctypes.c_void_p(0), None)
         assert big_icon

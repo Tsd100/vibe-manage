@@ -25,6 +25,24 @@ def small_window_icon_size(dpi: int) -> int:
     return next((size for size in (16, 20, 24, 32, 48, 64, 128, 256) if size >= target), 256)
 
 
+def window_dpi(root: Any) -> int | None:
+    """Read the DPI of the mapped top-level window, if Windows provides it."""
+    if os.name != "nt":
+        return None
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        user32.GetAncestor.restype = ctypes.c_void_p
+        user32.GetDpiForWindow.argtypes = [ctypes.c_void_p]
+        user32.GetDpiForWindow.restype = ctypes.c_uint
+        child = ctypes.c_void_p(int(root.winfo_id()))
+        hwnd = user32.GetAncestor(child, 2)  # GA_ROOT
+        dpi = int(user32.GetDpiForWindow(ctypes.c_void_p(hwnd or child.value)))
+        return dpi or None
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
 def set_windows_window_icon(root: Any, icon_path: str | Path) -> bool:
     """Apply a real ICO to a Tk window handle for reliable taskbar rendering."""
 

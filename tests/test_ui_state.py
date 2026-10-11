@@ -97,6 +97,40 @@ def test_system_theme_resolution_is_explicit():
     assert is_dark_theme("跟随系统", False) is False
 
 
+def test_sidebar_logo_fits_and_fonts_rescale_on_dpi_change(tmp_path, monkeypatch):
+    import tkinter as tk
+    from tkinter import font as tkfont
+
+    from project_manager.config import AppConfig
+    from project_manager.storage import JsonStore
+    import project_manager.ui as ui_module
+
+    data_dir = tmp_path / "data"
+    JsonStore(data_dir / "settings.json").save({"auto_scan_on_start": False})
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.tk.call("tk", "scaling", 192 / 72)
+        app = ui_module.ProjectManagerApp(root, AppConfig(tmp_path / "repos", data_dir), no_tray=True)
+        logo_area = app._window_drag_regions[0]
+        sidebar = logo_area.master
+        logo = logo_area.winfo_children()[0]
+        logo_font = tkfont.Font(root=root, font=logo.cget("font"))
+
+        assert int(sidebar.cget("width")) >= logo_font.measure("MANAGE") + 40
+        before = logo_font.measure("MANAGE")
+        monkeypatch.setattr(ui_module, "window_dpi", lambda _root: 120, raising=False)
+
+        root.event_generate("<Configure>")
+        root.update()
+
+        after = tkfont.Font(root=root, font=logo.cget("font")).measure("MANAGE")
+        assert abs(float(root.tk.call("tk", "scaling")) - 120 / 72) < 0.05
+        assert after < before
+    finally:
+        root.destroy()
+
+
 def test_secondary_page_switch_hides_previous_page(tmp_path):
     import tkinter as tk
 
