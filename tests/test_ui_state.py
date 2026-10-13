@@ -291,17 +291,29 @@ def test_manual_override_includes_github_field():
 
 def test_project_summary_counts_and_status_tone():
     projects = [
-        {"manual_status": "进行中"},
-        {"manual_status": "开发中"},
-        {"manual_status": "需关注"},
-        {"manual_status": "已完成"},
-        {},
+        {"manual_status": "进行中", "purpose": "有用途"},
+        {"manual_status": "开发中", "purpose": "有用途"},
+        {"manual_status": "需关注", "purpose": "有用途"},
+        {"manual_status": "已完成", "purpose": "有用途"},
+        {"purpose": "有用途"},
     ]
     assert project_summary_counts(projects) == {"total": 5, "active": 2, "attention": 1}
     assert status_tone(projects[0]) == "active"
     assert status_tone(projects[2]) == "attention"
     assert status_tone(projects[3]) == "neutral"
     assert status_tone(projects[4]) == "neutral"
+
+
+def test_attention_summary_matches_attention_filter_for_automatic_signals():
+    projects = [
+        {"name": "clean", "manual_status": "已完成", "purpose": "有用途", "dirty_files": 0},
+        {"name": "dirty", "manual_status": "进行中", "purpose": "有用途", "dirty_files": 2},
+        {"name": "unknown", "manual_status": "未确认", "purpose": "用途待补充", "dirty_files": 0},
+        {"name": "paused", "manual_status": "暂停", "purpose": "有用途", "dirty_files": 0},
+    ]
+    assert project_summary_counts(projects)["attention"] == len(
+        filter_projects_advanced(projects, attention_only=True)
+    ) == 3
 
 
 def test_reference_projects_are_excluded_from_managed_views():

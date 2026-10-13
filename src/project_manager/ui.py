@@ -176,7 +176,7 @@ def project_summary_counts(projects: Iterable[Mapping[str, Any]]) -> dict[str, i
     return {
         "total": len(records),
         "active": sum(status_tone(project) == "active" for project in records),
-        "attention": sum(status_tone(project) == "attention" for project in records),
+        "attention": sum(has_attention_signal(project) for project in records),
     }
 
 
