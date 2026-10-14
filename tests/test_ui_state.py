@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import project_manager.ui as ui
+
 from project_manager.ui import (
     WindowState,
     build_manual_override,
@@ -326,6 +328,47 @@ def test_reference_projects_are_excluded_from_managed_views():
     assert is_reference_project(projects[1]) is True
     assert is_reference_project(projects[2]) is True
     assert [project["name"] for project in managed_projects(projects)] == ["main"]
+
+
+def test_timeline_project_choices_distinguish_same_named_projects():
+    projects = [
+        {"id": "repo:a", "name": "demo", "root": r"D:\Github", "path": "TeamA/demo"},
+        {"id": "repo:b", "name": "demo", "root": r"D:\Github", "path": "TeamB/demo"},
+        {"id": "repo:c", "name": "unique", "root": r"D:\Github", "path": "unique"},
+    ]
+    choices = ui.timeline_project_choices(projects)
+    assert choices == {
+        "全部项目": None,
+        r"demo · D:\Github\TeamA\demo": "repo:a",
+        r"demo · D:\Github\TeamB\demo": "repo:b",
+        "unique": "repo:c",
+    }
+
+
+def test_timeline_filter_keeps_only_selected_same_named_project(tmp_path):
+    import tkinter as tk
+
+    from project_manager.config import AppConfig
+    from project_manager.storage import JsonStore
+    from project_manager.ui import ProjectManagerApp
+
+    data_dir = tmp_path / "data"
+    JsonStore(data_dir / "settings.json").save({"auto_scan_on_start": False})
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = ProjectManagerApp(root, AppConfig(repo_root=tmp_path / "repos", data_dir=data_dir), no_tray=True)
+        app.projects = [
+            {"id": "repo:a", "name": "demo", "root": r"D:\Github", "path": "TeamA/demo",
+             "created_at": "2026-09-01T10:00:00+08:00"},
+            {"id": "repo:b", "name": "demo", "root": r"D:\Github", "path": "TeamB/demo",
+             "created_at": "2026-09-02T10:00:00+08:00"},
+        ]
+        app.timeline_project_var.set(r"demo · D:\Github\TeamB\demo")
+        app._render_timeline_page()
+        assert {project["id"] for project, _event in app.timeline_event_map.values()} == {"repo:b"}
+    finally:
+        root.destroy()
 
 
 def test_advanced_filters_combine_status_phase_and_attention():

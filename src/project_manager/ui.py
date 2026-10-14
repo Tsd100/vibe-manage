@@ -4,6 +4,7 @@ import calendar as calendar_module
 import os
 import threading
 import tkinter as tk
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -236,6 +237,21 @@ def project_display_path(
     if not root_value:
         root_value = next((str(root).strip() for root in fallback_roots if str(root).strip()), "")
     return str(Path(root_value) / path) if root_value else raw_path
+
+
+def timeline_project_choices(projects: Iterable[Mapping[str, Any]]) -> dict[str, str | None]:
+    """Map readable timeline filter labels to project IDs, disambiguating names."""
+    records = list(projects)
+    name_counts = Counter(str(project.get("name", "")) for project in records)
+    choices: dict[str, str | None] = {"全部项目": None}
+    for project in records:
+        name = str(project.get("name", ""))
+        project_id = str(project.get("id", project.get("path", name)))
+        label = f"{name} · {project_display_path(project)}" if name_counts[name] > 1 or name == "全部项目" else name
+        if label in choices:
+            label = f"{label} [{project_id}]"
+        choices[label] = project_id
+    return choices
 
 
 def project_detail_fields(project: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -1256,9 +1272,9 @@ class ProjectManagerApp:
 
     def _render_timeline_page(self) -> None:
         visible_projects = managed_projects(self.projects)
-        project_names = ["全部项目"] + [str(project.get("name", "")) for project in visible_projects]
-        self.timeline_project_box.configure(values=project_names)
-        if self.timeline_project_var.get() not in project_names:
+        project_choices = timeline_project_choices(visible_projects)
+        self.timeline_project_box.configure(values=list(project_choices))
+        if self.timeline_project_var.get() not in project_choices:
             self.timeline_project_var.set("全部项目")
         for child in self.timeline_cards.winfo_children():
             child.destroy()
@@ -1266,6 +1282,7 @@ class ProjectManagerApp:
         self.timeline_card_parts.clear()
         self.timeline_selected_id = None
         project_filter = self.timeline_project_var.get()
+        selected_project_id = project_choices[project_filter]
         type_filter = self.timeline_type_var.get()
         event_names = {
             "created": "创建时间", "last_modified": "项目修改", "commit": "Git 提交",
@@ -1274,7 +1291,7 @@ class ProjectManagerApp:
         }
         records: list[tuple[dict[str, Any], Any]] = []
         for project in visible_projects:
-            if project_filter != "全部项目" and str(project.get("name", "")) != project_filter:
+            if selected_project_id is not None and str(project.get("id", project.get("path", project.get("name", "")))) != selected_project_id:
                 continue
             for event in project_events(project):
                 if type_filter != "全部事件" and event_names.get(event.event_type, event.event_type) != type_filter:
