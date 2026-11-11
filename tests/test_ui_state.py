@@ -371,6 +371,13 @@ def test_timeline_filter_keeps_only_selected_same_named_project(tmp_path):
         root.destroy()
 
 
+def test_global_timeline_caps_cards_without_truncating_project_view():
+    records = ["new", "middle", "old"]
+
+    assert ui.cap_timeline_records(records, selected_project_id=None, limit=2) == ["new", "middle"]
+    assert ui.cap_timeline_records(records, selected_project_id="repo:demo", limit=2) == records
+
+
 def test_advanced_filters_combine_status_phase_and_attention():
     projects = [
         {"name": "active", "manual_status": "进行中", "manual_phase": "开发", "dirty_files": 0,

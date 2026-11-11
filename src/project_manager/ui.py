@@ -254,6 +254,11 @@ def timeline_project_choices(projects: Iterable[Mapping[str, Any]]) -> dict[str,
     return choices
 
 
+def cap_timeline_records(records: list[Any], selected_project_id: str | None, limit: int = 200) -> list[Any]:
+    """Keep the global timeline responsive while preserving per-project history."""
+    return records[:limit] if selected_project_id is None else records
+
+
 def project_detail_fields(project: Mapping[str, Any]) -> list[tuple[str, str]]:
     manual_created = project.get("manual_created_at")
     created_value = manual_created or project.get("created_at") or "未知"
@@ -1298,6 +1303,7 @@ class ProjectManagerApp:
                     continue
                 records.append((project, event))
         records.sort(key=lambda pair: (pair[1].at is not None, pair[1].at or ""), reverse=True)
+        records = cap_timeline_records(records, selected_project_id)
         for index, (project, event) in enumerate(records):
             item_id = f"event:{index}"
             self.timeline_event_map[item_id] = (project, event)

@@ -1,4 +1,51 @@
+import os
+import subprocess
+
+import pytest
+
 from project_manager.scanner import discover_repositories, scan_projects, should_skip_directory
+
+
+@pytest.fixture
+def committed_repo(tmp_path):
+    repo = tmp_path / "committed"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    for index, stamp in enumerate(("2025-01-02T03:04:05+08:00", "2026-02-03T04:05:06+08:00"), 1):
+        (repo / "README.md").write_text(f"version {index}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "README.md"], check=True)
+        env = {**os.environ, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                        "commit", "-q", "-m", f"version {index}"], check=True, env=env)
+    return repo
+
+
+def test_git_metadata_uses_root_commit_for_creation_time(committed_repo):
+    from project_manager.scanner import git_metadata
+
+    metadata = git_metadata(committed_repo)
+
+    assert metadata["first_commit_at"] == "2025-01-02T03:04:05+08:00"
+
+
+def test_git_metadata_includes_recent_commits_with_stable_hashes(committed_repo):
+    from project_manager.scanner import git_metadata
+
+    metadata = git_metadata(committed_repo)
+    commits = metadata["recent_commits"]
+
+    assert [(item["at"], item["subject"]) for item in commits] == [
+        ("2026-02-03T04:05:06+08:00", "version 2"),
+        ("2025-01-02T03:04:05+08:00", "version 1"),
+    ]
+    assert all(len(item["sha"]) == 40 for item in commits)
+
+
+def test_scan_projects_preserves_recent_commit_window(committed_repo):
+    project = scan_projects(committed_repo.parent)[0]
+
+    assert len(project["recent_commits"]) == 2
+    assert project["recent_commits"][0]["subject"] == "version 2"
 
 
 def test_discover_repositories_skips_nested_noise(tmp_path):

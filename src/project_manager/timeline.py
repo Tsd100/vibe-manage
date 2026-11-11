@@ -44,7 +44,21 @@ def project_events(project: Mapping[str, Any]) -> list[TimelineEvent]:
             str(project["created_at"]), "created", "项目创建时间",
             str(project.get("created_at_source") or "unknown"),
         ))
-    if project.get("last_commit_at"):
+    recent = project.get("recent_commits")
+    seen_commits: set[str] = set()
+    if isinstance(recent, list):
+        for item in recent:
+            if not isinstance(item, Mapping):
+                continue
+            sha = str(item.get("sha") or "")
+            at = str(item.get("at") or "")
+            if not sha or not at or sha in seen_commits:
+                continue
+            seen_commits.add(sha)
+            events.append(TimelineEvent(
+                at, "commit", str(item.get("subject") or "最近一次提交"), "git",
+            ))
+    if not seen_commits and project.get("last_commit_at"):
         events.append(TimelineEvent(
             str(project["last_commit_at"]), "commit",
             str(project.get("last_subject") or "最近一次提交"), "git",

@@ -28,6 +28,22 @@ def test_project_events_include_commit_and_worktree_evidence():
     assert [event.event_type for event in events] == ["validation", "working_tree", "commit"]
 
 
+def test_project_events_show_recent_commits_without_repeating_tip():
+    events = project_events({
+        "last_commit_at": "2026-02-03T04:05:06+08:00",
+        "last_subject": "version 2",
+        "recent_commits": [
+            {"sha": "b" * 40, "at": "2026-02-03T04:05:06+08:00", "subject": "version 2"},
+            {"sha": "a" * 40, "at": "2025-01-02T03:04:05+08:00", "subject": "version 1"},
+        ],
+    })
+
+    assert [(event.at, event.summary) for event in events if event.event_type == "commit"] == [
+        ("2026-02-03T04:05:06+08:00", "version 2"),
+        ("2025-01-02T03:04:05+08:00", "version 1"),
+    ]
+
+
 def test_project_events_include_creation_and_last_modified_evidence():
     events = project_events({
         "created_at": "2025-01-01T00:00:00+00:00",

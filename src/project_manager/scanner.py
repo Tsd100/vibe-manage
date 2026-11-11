@@ -132,12 +132,18 @@ def git_remote_metadata(repo: Path) -> dict[str, str]:
     }
 
 
-def git_metadata(repo: Path) -> dict[str, str | int | None]:
+def git_metadata(repo: Path) -> dict[str, object]:
     status = _git(repo, "status", "--short")
     branch = _git(repo, "branch", "--show-current") or "DETACHED"
-    last_commit = _git(repo, "log", "-1", "--format=%cI") or None
-    first_commit = _git(repo, "log", "--reverse", "--format=%cI", "-1") or None
-    subject = _git(repo, "log", "-1", "--format=%s")
+    recent_commits = []
+    for line in _git(repo, "log", "-n", "20", "--format=%H%x1f%cI%x1f%s", "HEAD").splitlines():
+        parts = line.split("\x1f", 2)
+        if len(parts) == 3:
+            recent_commits.append({"sha": parts[0], "at": parts[1], "subject": parts[2]})
+    last_commit = recent_commits[0]["at"] if recent_commits else None
+    root_commits = _git(repo, "log", "--max-parents=0", "--format=%cI", "HEAD").splitlines()
+    first_commit = min(root_commits, key=datetime.fromisoformat) if root_commits else None
+    subject = recent_commits[0]["subject"] if recent_commits else ""
     return {
         "branch": branch,
         "status": status,
@@ -145,6 +151,7 @@ def git_metadata(repo: Path) -> dict[str, str | int | None]:
         "last_commit_at": last_commit,
         "first_commit_at": first_commit,
         "last_subject": subject,
+        "recent_commits": recent_commits,
         **git_remote_metadata(repo),
     }
 
@@ -240,6 +247,7 @@ def scan_projects(
             "branch": metadata.get("branch"),
             "dirty_files": metadata.get("dirty_files", 0),
             "last_subject": metadata.get("last_subject", ""),
+            "recent_commits": metadata.get("recent_commits", []),
             "github_open_source": metadata.get("github_open_source", "未确认"),
             "github_open_source_source": metadata.get("github_open_source_source", "auto_git_remote"),
             "github_remote_url": metadata.get("github_remote_url", ""),
