@@ -76,6 +76,30 @@ def test_mousewheel_scroll_units_supports_windows_wheel_deltas():
     assert mousewheel_scroll_units(0) == 0
 
 
+def test_detail_mousewheel_scrolls_when_pointer_is_over_a_nested_label(tmp_path, monkeypatch):
+    import tkinter as tk
+    from project_manager.ui import AppConfig, ProjectManagerApp
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = ProjectManagerApp(root, AppConfig(repo_root=tmp_path / "repos", data_dir=tmp_path / "data"), no_tray=True)
+        label = tk.Label(app.detail_content, text="detail")
+        label.pack()
+        monkeypatch.setattr(root, "winfo_containing", lambda _x, _y: label)
+        calls = []
+        monkeypatch.setattr(app.detail_canvas, "yview_scroll", lambda *args: calls.append(args))
+        event = type("WheelEvent", (), {"x_root": 10, "y_root": 10, "delta": -120, "num": None})()
+
+        assert app._on_detail_mousewheel(event) == "break"
+        assert calls == [(1, "units")]
+        monkeypatch.setattr(root, "winfo_containing", lambda _x, _y: app.tree)
+        assert app._on_detail_mousewheel(event) is None
+        assert calls == [(1, "units")]
+    finally:
+        root.destroy()
+
+
 def test_scan_progress_message_reports_repository_count_and_name():
     assert format_scan_progress(0, 49, "") == "扫描中：0/49 个项目"
     assert format_scan_progress(12, 49, "alpha") == "扫描中：12/49 个项目 · alpha"

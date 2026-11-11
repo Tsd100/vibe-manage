@@ -760,6 +760,7 @@ class ProjectManagerApp:
         self.overview_panes.pack(fill=tk.BOTH, expand=True, pady=(16, 0))
         left = tk.Frame(self.overview_panes, bg=THEME["card"], highlightbackground=THEME["line"], highlightthickness=1)
         right = tk.Frame(self.overview_panes, bg=THEME["card"], highlightbackground=THEME["line"], highlightthickness=1)
+        self.detail_panel = right
         self.overview_panes.add(left, weight=3)
         self.overview_panes.add(right, weight=4)
 
@@ -848,6 +849,9 @@ class ProjectManagerApp:
         self.detail_canvas.configure(yscrollcommand=detail_scroll.set)
         self.detail_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         detail_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.root.bind_all("<MouseWheel>", self._on_detail_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_detail_mousewheel, add="+")
+        self.root.bind_all("<Button-5>", self._on_detail_mousewheel, add="+")
         self._build_secondary_pages(workspace)
         self.show_page(self.settings.default_page)
         self.root.after_idle(self._keep_window_visible)
@@ -1491,6 +1495,24 @@ class ProjectManagerApp:
             padx=9,
             pady=3,
         )
+
+    def _on_detail_mousewheel(self, event: tk.Event) -> str | None:
+        """Scroll details while the pointer is over any nested detail widget."""
+        try:
+            target = self.root.winfo_containing(event.x_root, event.y_root)
+        except (AttributeError, tk.TclError):
+            return None
+        while target is not None and target != self.detail_panel:
+            target = getattr(target, "master", None)
+        if target is None:
+            return None
+        button = getattr(event, "num", None)
+        delta = 120 if button == 4 else -120 if button == 5 else getattr(event, "delta", 0)
+        units = mousewheel_scroll_units(delta)
+        if units:
+            self.detail_canvas.yview_scroll(units, "units")
+            return "break"
+        return None
 
     def _render_detail_panel(self, project: Mapping[str, Any] | None) -> None:
         for child in self.detail_content.winfo_children():
